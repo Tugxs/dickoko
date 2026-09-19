@@ -22,7 +22,7 @@
     button.innerHTML = `<span class="rail-icon">${icon}</span><span>${label}</span>`;
     button.addEventListener('click', async () => {
       if (id === 'newserver') {
-        if (window.diskokoRequireStudio) { await window.diskokoRequireStudio(); if (!document.body.classList.contains('home-hidden')) return; }
+        if (window.diskokoRequireStudio) { await window.diskokoRequireStudio(); if (!document.querySelector('#homeOverlay')?.classList.contains('home-hidden')) return; }
         window.location.hash = 'newserver';
       }
       $$('.rail-item', rail).forEach(item => item.classList.remove('active'));
@@ -158,7 +158,7 @@
   ];
   let currentLanguage=localStorage.getItem('diskoko-language')||'ar', applyingLanguage=false;
   function translateValue(value, to){ let out=value; localePairs.forEach(([en,ar])=>{const from=to==='en'?ar:en, dest=to==='en'?en:ar; if(out.includes(from)) out=out.split(from).join(dest)}); return out; }
-  function applyLanguage(lang){ if(applyingLanguage)return; applyingLanguage=true; currentLanguage=lang; localStorage.setItem('diskoko-language',lang); const root=document.body; const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT); const nodes=[]; while(walker.nextNode())nodes.push(walker.currentNode); nodes.forEach(n=>{if(n.parentElement?.closest('script,style'))return; n.nodeValue=translateValue(n.nodeValue,lang)}); $$('[placeholder],[title],[aria-label]').forEach(el=>['placeholder','title','aria-label'].forEach(attr=>{if(el.hasAttribute(attr))el.setAttribute(attr,translateValue(el.getAttribute(attr),lang))})); const toggle=$('#langToggle'); if(toggle)toggle.textContent=lang==='ar'?'English':'العربية'; document.documentElement.lang=lang==='ar'?'ar':'en'; document.documentElement.dir=lang==='ar'?'rtl':'ltr'; applyingLanguage=false; }
+  function applyLanguage(lang){ if(applyingLanguage)return; applyingLanguage=true; currentLanguage=lang; localStorage.setItem('diskoko-language',lang); const root=document.body; const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT); const nodes=[]; while(walker.nextNode())nodes.push(walker.currentNode); nodes.forEach(n=>{if(n.parentElement?.closest('script,style,#homeOverlay'))return; n.nodeValue=translateValue(n.nodeValue,lang)}); $$('[placeholder],[title],[aria-label]').forEach(el=>{if(el.closest('#homeOverlay'))return; ['placeholder','title','aria-label'].forEach(attr=>{if(el.hasAttribute(attr))el.setAttribute(attr,translateValue(el.getAttribute(attr),lang));});}); const toggle=$('#langToggle'); if(toggle)toggle.textContent=lang==='ar'?'English':'العربية'; document.documentElement.lang=lang==='ar'?'ar':'en'; document.documentElement.dir=lang==='ar'?'rtl':'ltr'; applyingLanguage=false; }
   $('#langToggle')?.addEventListener('click',()=>applyLanguage(currentLanguage==='ar'?'en':'ar'));
   const languageObserver=new MutationObserver(()=>{if(!applyingLanguage)requestAnimationFrame(()=>applyLanguage(currentLanguage));}); languageObserver.observe(document.body,{childList:true,subtree:true});
   applyLanguage(currentLanguage);
