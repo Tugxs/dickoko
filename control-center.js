@@ -7,6 +7,7 @@
 
   const nav = [
     ['overview','⌂','Overview'],
+    ['servers','◫','Servers'],
     ['templates','▦','Templates'],
     ['botstudio','◈','Scooco Bot']
   ];
@@ -36,7 +37,25 @@
       <div class="section-label"><b>Continue building</b><span>4 steps to launch</span></div>
       <div class="build-steps"><button data-go="templates"><span>01</span><div><b>Pick a foundation</b><small>Start from a Gaming, Creator, or Study template.</small></div><strong>→</strong></button><button data-go="structure"><span>02</span><div><b>Shape the structure</b><small>Arrange categories, channels, and the member journey.</small></div><strong>→</strong></button><button data-go="botstudio"><span>03</span><div><b>Train your assistant</b><small>Build commands and a personality for Scooco Bot.</small></div><strong>→</strong></button><button data-go="security"><span>04</span><div><b>Prepare the guardrails</b><small>Design moderation rules before connecting Discord.</small></div><strong>→</strong></button></div>
       <div class="section-label"><b>Quick actions</b><span>Jump into the workspace</span></div>
-      <div class="quick-actions"><button data-go="ai">✦ <b>AI World Designer</b><small>Describe your ideal community</small></button><button data-go="identity">◉ <b>Brand Kit</b><small>Colors, welcome, and identity</small></button><button data-go="analytics">⌁ <b>Community Insights</b><small>Readiness and activity overview</small></button><button data-connect="true">◈ <b>Connect Discord</b><small>Link your server when ready</small></button></div>`);
+      <div class="quick-actions"><button data-go="ai">✦ <b>AI World Designer</b><small>Describe your ideal community</small></button><button data-go="identity">◉ <b>Brand Kit</b><small>Colors, welcome, and identity</small></button><button data-go="analytics">⌁ <b>Community Insights</b><small>Readiness and activity overview</small></button><button data-go="servers">◫ <b>Manage servers</b><small>Plan, bots, AI, and schedules</small></button></div>`);
+    bindProductActions();
+  }
+
+  function renderServers() {
+    shell('SERVER HUB','Manage every server from one place','Your plan decides how many servers you can connect. Each server gets its own bots, AI workspace, automations, and usage controls.', `
+      <div class="server-plan-card"><div><span class="product-eyebrow">CURRENT PLAN</span><h2>Growth <span>monthly</span></h2><p>Up to 3 connected servers, 10 active bots, and advanced community automations.</p></div><div class="plan-usage"><b>01 <small>/ 03</small></b><span>servers connected</span><i><em style="width:33%"></em></i><button class="mini upgrade-plan">Manage plan ↗</button></div></div>
+      <div class="server-toolbar"><div><div class="section-label"><b>Your servers</b><span>1 connected · 1 draft</span></div><p>Choose a server to open its workspace.</p></div><button class="product-cta" data-connect="true">＋ Connect server</button></div>
+      <div class="server-grid"><article class="server-card connected"><div class="server-card-top"><div class="server-mark">N</div><span class="server-status">CONNECTED</span></div><h3>NOVA WORLD</h3><p>Gaming community · 1,248 members</p><div class="server-metrics"><span><b>03</b>bots</span><span><b>12</b>automations</span><span><b>72%</b>health</span></div><div class="server-card-actions"><button class="server-open" data-server="NOVA WORLD">Open workspace ↗</button><button class="server-more">•••</button></div></article><article class="server-card draft"><div class="server-card-top"><div class="server-mark cyan-mark">C</div><span class="server-status draft-status">DRAFT</span></div><h3>CREATOR LAB</h3><p>Creator community · preview only</p><div class="server-metrics"><span><b>01</b>bot draft</span><span><b>05</b>channels</span><span><b>—</b>not linked</span></div><div class="server-card-actions"><button class="server-open" data-go="templates">Continue design ↗</button><button class="server-more">•••</button></div></article><article class="server-card add-server"><div class="add-icon">＋</div><h3>Connect another server</h3><p>Your Growth plan has 2 server slots remaining.</p><button class="mini" data-connect="true">Start connection</button></article></div>
+      <div class="section-label"><b>NOVA WORLD workspace</b><span>connected services</span></div><div class="server-workspace"><div class="service-list"><button class="service-tab active" data-service="bots"><span>◈</span><div><b>Bot control</b><small>3 bots · 2 online</small></div><strong>→</strong></button><button class="service-tab" data-service="ai"><span>✦</span><div><b>AI assistant</b><small>Scooco · ready to configure</small></div><strong>→</strong></button><button class="service-tab" data-service="schedule"><span>◷</span><div><b>Automations</b><small>12 scheduled actions</small></div><strong>→</strong></button></div><div class="service-detail" id="serverServiceDetail"><span class="detail-kicker">BOT CONTROL</span><h3>Your bots are the operating layer.</h3><p>Choose what each bot can do, where it can speak, and which actions require human approval.</p><div class="service-toggles"><label><span><b>Scooco assistant</b><small>AI chat, drafts, and community help</small></span><input type="checkbox" checked><i></i></label><label><span><b>Guardian moderation</b><small>Safety suggestions and incident alerts</small></span><input type="checkbox" checked><i></i></label><label><span><b>Event host</b><small>Reminders, RSVP, and announcements</small></span><input type="checkbox"><i></i></label></div><button class="product-cta" data-go="botstudio">Configure bots in Scooco Studio ↗</button></div></div>
+      <div class="section-label"><b>Scheduled actions</b><span>server timezone · Riyadh</span></div><div class="schedule-list"><div><span class="schedule-time">TODAY<br><b>20:00</b></span><div><b>Tournament reminder</b><small>Send to #announcements · Nova World</small></div><span class="schedule-badge">ACTIVE</span></div><div><span class="schedule-time">FRI<br><b>18:30</b></span><div><b>Weekly community digest</b><small>Scooco draft → human approval</small></div><span class="schedule-badge paused">PAUSED</span></div></div>`);
+    $$('.server-open').forEach(button=>button.addEventListener('click',()=>toastProduct(`${button.dataset.server||'Creator Lab'} workspace opened`)));
+    $$('.service-tab').forEach(button=>button.addEventListener('click',()=>{
+      $$('.service-tab').forEach(x=>x.classList.remove('active'));button.classList.add('active');
+      const detail=$('#serverServiceDetail'); const mode=button.dataset.service;
+      const data={bots:['BOT CONTROL','Your bots are the operating layer.','Choose what each bot can do, where it can speak, and which actions require human approval.','Configure bots in Scooco Studio ↗'],ai:['AI ASSISTANT','Give Scooco a role in your community.','Set context, allowed actions, approval rules, and the channels where AI can assist.','Open AI assistant settings ↗'],schedule:['AUTOMATIONS','Make the community run on time.','Schedule announcements, reminders, digests, and AI drafts for review.','Open automation calendar ↗']}[mode];
+      detail.querySelector('.detail-kicker').textContent=data[0];detail.querySelector('h3').textContent=data[1];detail.querySelector('p').textContent=data[2];detail.querySelector('.product-cta').textContent=data[3];
+    }));
+    $$('.upgrade-plan').forEach(button=>button.onclick=()=>toastProduct('Plan management will open after billing is connected'));
     bindProductActions();
   }
 
@@ -62,7 +81,7 @@
     $('#saveScooco').onclick=()=>toastProduct('Scooco Bot draft saved locally');
   }
 
-  function render(id) { if (id==='overview') renderOverview(); else if (id==='templates') renderTemplates(); else if (id==='botstudio') renderBotStudio(); }
+  function render(id) { if (id==='overview') renderOverview(); else if (id==='servers') renderServers(); else if (id==='templates') renderTemplates(); else if (id==='botstudio') renderBotStudio(); }
   function bindProductActions() {
     $$('[data-go]').forEach(button => { if (button.dataset.bound) return; button.dataset.bound='true'; button.addEventListener('click',()=>{ const target=$(`[data-panel="${button.dataset.go}"]`,rail); if(target) target.click(); }); });
     $$('[data-connect]').forEach(button=>{button.onclick=()=>$('#connectBtn')?.click()});
