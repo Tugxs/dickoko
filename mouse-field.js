@@ -1,45 +1,36 @@
 const stage = document.querySelector('#previewStage');
 if (stage) {
   let frame;
-  const particles = Array.from({length: 22}, (_, index) => {
-    const particle = document.createElement('span');
-    particle.className = 'field-particle';
-    particle.style.left = `${(index * 47) % 100}%`;
-    particle.style.top = `${(index * 29 + 11) % 100}%`;
-    particle.dataset.depth = String(0.2 + (index % 4) * 0.12);
-    stage.appendChild(particle);
-    return particle;
+  const particles = Array.from({length: 34}, (_, index) => {
+    const star = document.createElement('span');
+    star.className = 'field-particle';
+    star.style.left = `${(index * 47 + 13) % 100}%`;
+    star.style.top = `${(index * 29 + 17) % 100}%`;
+    star.style.setProperty('--star-size', `${1 + index % 3}px`);
+    star.style.setProperty('--twinkle-delay', `${(index % 7) * -0.6}s`);
+    star.dataset.starX = String(((index * 47 + 13) % 100) / 100);
+    star.dataset.starY = String(((index * 29 + 17) % 100) / 100);
+    stage.appendChild(star);
+    return star;
   });
   const moveField = (event) => {
     const rect = stage.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    const nx = x / rect.width - 0.5;
-    const ny = y / rect.height - 0.5;
+    const nx = x / rect.width;
+    const ny = y / rect.height;
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => {
       stage.style.setProperty('--field-x', `${x}px`);
       stage.style.setProperty('--field-y', `${y}px`);
-      stage.style.setProperty('--field-dx', `${nx * 8}px`);
-      stage.style.setProperty('--field-dy', `${ny * 8}px`);
-      stage.style.setProperty('--field-opacity', '1');
-      particles.forEach((particle, index) => {
-        const depth = Number(particle.dataset.depth);
-        const near = Math.abs((index * 47 % 100) / 100 - x / rect.width) < .16 && Math.abs(((index * 29 + 11) % 100) / 100 - y / rect.height) < .2;
-        const driftX = nx * 8 * depth;
-        const driftY = ny * 8 * depth;
-        particle.style.opacity = near ? '0' : '.26';
-        particle.style.transform = `translate3d(${driftX}px, ${driftY}px, 0)`;
+      particles.forEach((star) => {
+        const distance = Math.hypot(Number(star.dataset.starX) - nx, Number(star.dataset.starY) - ny);
+        star.style.opacity = distance < 0.13 ? '0' : '.55';
       });
     });
   };
   const resetField = () => {
-    stage.style.setProperty('--field-x', '50%');
-    stage.style.setProperty('--field-y', '50%');
-    stage.style.setProperty('--field-dx', '0px');
-    stage.style.setProperty('--field-dy', '0px');
-    stage.style.setProperty('--field-opacity', '0');
-    particles.forEach((particle) => { particle.style.opacity = '.2'; particle.style.transform = 'translate3d(0, 0, 0)'; });
+    particles.forEach((star) => { star.style.opacity = '.38'; });
   };
   stage.addEventListener('pointermove', moveField, {passive:true});
   stage.addEventListener('pointerleave', resetField);
