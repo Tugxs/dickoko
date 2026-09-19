@@ -20,8 +20,11 @@
     button.className = 'rail-item product-rail-item';
     button.dataset.panel = id;
     button.innerHTML = `<span class="rail-icon">${icon}</span><span>${label}</span>`;
-    button.addEventListener('click', () => {
-      if (id === 'newserver') window.location.hash = 'newserver';
+    button.addEventListener('click', async () => {
+      if (id === 'newserver') {
+        if (window.diskokoRequireStudio) { await window.diskokoRequireStudio(); if (!document.body.classList.contains('home-hidden')) return; }
+        window.location.hash = 'newserver';
+      }
       $$('.rail-item', rail).forEach(item => item.classList.remove('active'));
       button.classList.add('active');
       render(id);
