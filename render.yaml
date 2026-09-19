@@ -14,9 +14,9 @@ services:
       - key: ENCRYPTION_KEY
         generateValue: true
       - key: BASE_URL
-        value: https://dickoko.onrender.com
+        value: https://diskoko.onrender.com
       - key: FRONTEND_URL
-        value: https://dickoko.onrender.com
+        value: https://diskoko.onrender.com
       - key: DISCORD_CLIENT_ID
         sync: false
       - key: DISCORD_CLIENT_SECRET
