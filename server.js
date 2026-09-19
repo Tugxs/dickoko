@@ -94,7 +94,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || "development-only-change-me",
   resave: false,
   saveUninitialized: false,
-  name: "dickoko.sid",
+  name: "diskoko.sid",
   cookie: { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 1000 * 60 * 60 * 24 * 14 },
 }));
 
@@ -156,7 +156,7 @@ async function audit(actor, action, targetType, targetId, details = {}) {
   await pool.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [actor || null, action, targetType, targetId ? String(targetId) : null, details]);
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, service: "dickoko", time: new Date().toISOString() }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, service: "diskoko", time: new Date().toISOString() }));
 app.get("/auth/discord", rateLimit(12, 60_000), (req, res) => {
   const state = crypto.randomBytes(24).toString("hex");
   req.session.oauthState = state;
@@ -239,4 +239,4 @@ app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.
 app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
 app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: "حدث خطأ غير متوقع" }); });
 
-migrate().then(() => app.listen(PORT, "0.0.0.0", () => console.log(`dickoko running on ${PORT}`))).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
+migrate().then(() => app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`))).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
