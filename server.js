@@ -5,6 +5,7 @@ import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
+import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -162,7 +163,7 @@ async function audit(actor, action, targetType, targetId, details = {}) {
   await pool.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [actor || null, action, targetType, targetId ? String(targetId) : null, details]);
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, service: "diskoko", time: new Date().toISOString() }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, service: "diskoko", bot: getDiscordBotStatus(), time: new Date().toISOString() }));
 app.get("/auth/discord", rateLimit(12, 60_000), (req, res) => {
   const state = crypto.randomBytes(24).toString("hex");
   req.session.oauthState = state;
@@ -245,4 +246,7 @@ app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.
 app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
 app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: "حدث خطأ غير متوقع" }); });
 
-migrate().then(() => app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`))).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
+migrate().then(() => {
+  app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
+  void startDiscordBot();
+}).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
