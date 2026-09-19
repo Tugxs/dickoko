@@ -32,7 +32,7 @@ async function migrate() {
       display_name TEXT,
       avatar TEXT,
       email TEXT,
-      plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free','pro','studio')),
+      plan TEXT NOT NULL DEFAULT 'trial' CHECK (plan IN ('trial','starter','growth','complete')),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','cancelled')),
       access_token TEXT,
       refresh_token TEXT,
@@ -73,6 +73,12 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+  `);
+  await pool.query(`
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_plan_check;
+    UPDATE users SET plan = CASE plan WHEN 'free' THEN 'trial' WHEN 'pro' THEN 'growth' WHEN 'studio' THEN 'complete' ELSE plan END;
+    ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'trial';
+    ALTER TABLE users ADD CONSTRAINT users_plan_check CHECK (plan IN ('trial','starter','growth','complete'));
   `);
 }
 
@@ -212,7 +218,7 @@ app.put("/api/projects/:id", requireUser, async (req, res, next) => {
 
 app.get("/api/admin/stats", requireAdmin, async (_req, res, next) => {
   try {
-    const { rows } = await pool.query(`SELECT (SELECT COUNT(*) FROM users) users,(SELECT COUNT(*) FROM users WHERE status='active') active,(SELECT COUNT(*) FROM users WHERE plan='pro') pro,(SELECT COUNT(*) FROM users WHERE plan='studio') studio,(SELECT COUNT(*) FROM projects) projects`);
+    const { rows } = await pool.query(`SELECT (SELECT COUNT(*) FROM users) users,(SELECT COUNT(*) FROM users WHERE status='active') active,(SELECT COUNT(*) FROM users WHERE plan='starter') starter,(SELECT COUNT(*) FROM users WHERE plan='growth') growth,(SELECT COUNT(*) FROM users WHERE plan='complete') complete,(SELECT COUNT(*) FROM projects) projects`);
     res.json({ stats: rows[0] });
   } catch (e) { next(e); }
 });
@@ -225,7 +231,7 @@ app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
 });
 app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
   try {
-    const plan = ["free","pro","studio"].includes(req.body.plan) ? req.body.plan : null;
+    const plan = ["trial","starter","growth","complete"].includes(req.body.plan) ? req.body.plan : null;
     const status = ["active","suspended","cancelled"].includes(req.body.status) ? req.body.status : null;
     const { rows } = await pool.query("UPDATE users SET plan=COALESCE($1,plan),status=COALESCE($2,status),updated_at=NOW() WHERE id=$3 RETURNING *", [plan, status, req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: "المستخدم غير موجود" });
