@@ -103,11 +103,12 @@
     $$('.admin-filter').forEach(button=>button.onclick=()=>toastProduct('Filters opened — plan, status, usage, and date'));
   }
 
-  function render(id) { if (id==='overview') renderOverview(); else if (id==='servers') renderServers(); else if (id==='templates') renderTemplates(); else if (id==='botstudio') renderBotStudio(); else if (id==='admin') renderAdmin(); }
+  function render(id) { document.body.classList.toggle('admin-focus', id==='admin'); if (id==='overview') renderOverview(); else if (id==='servers') renderServers(); else if (id==='templates') renderTemplates(); else if (id==='botstudio') renderBotStudio(); else if (id==='admin') renderAdmin(); }
   function bindProductActions() {
     $$('[data-go]').forEach(button => { if (button.dataset.bound) return; button.dataset.bound='true'; button.addEventListener('click',()=>{ const target=$(`[data-panel="${button.dataset.go}"]`,rail); if(target) target.click(); }); });
     $$('[data-connect]').forEach(button=>{button.onclick=()=>$('#connectBtn')?.click()});
   }
   function toastProduct(message) { const target=$('#toast'); if(!target)return; target.textContent=message; target.classList.add('show'); setTimeout(()=>target.classList.remove('show'),2400); }
+  $$('.rail-item', rail).forEach(button => button.addEventListener('click', () => { if (button.dataset.panel !== 'admin') document.body.classList.remove('admin-focus'); }));
   const overviewButton=$('[data-panel="overview"]',rail); if (overviewButton) { overviewButton.classList.add('active'); renderOverview(); }
 })();
