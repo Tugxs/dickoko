@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ديسكوكو — ابنِ عالمك على ديسكورد</title>
+  <meta name="description" content="استوديو عربي لتصميم سيرفرات ديسكورد بالذكاء الاصطناعي.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="ديسكوكو، الصفحة الرئيسية"><span class="brand-mark">د</span><span>ديسكوكو</span><span class="beta">تجريبي</span></a>
+      <div class="project-name"><span class="live-dot"></span><span id="projectTitle">مجتمع نوفا</span><button class="icon-button" aria-label="تعديل اسم المشروع">⌄</button></div>
+      <div class="top-actions"><button class="button ghost" id="previewBtn">معاينة</button><button class="button primary" id="connectBtn"><span>◈</span> ربط ديسكورد</button></div>
+    </header>
+    <main class="workspace">
+      <aside class="toolrail" aria-label="أدوات التصميم">
+        <button class="rail-item active" data-panel="ai"><span class="rail-icon sparkle">✦</span><span>صمّم بالذكاء</span></button>
+        <button class="rail-item" data-panel="structure"><span class="rail-icon">☷</span><span>الهيكل</span></button>
+        <button class="rail-item" data-panel="roles"><span class="rail-icon">♙</span><span>الرتب</span></button>
+        <button class="rail-item" data-panel="identity"><span class="rail-icon">◉</span><span>الهوية</span></button>
+        <button class="rail-item" data-panel="settings"><span class="rail-icon">⚙</span><span>الإعدادات</span></button>
+        <div class="rail-spacer"></div><button class="rail-item"><span class="rail-icon">?</span><span>مساعدة</span></button>
+      </aside>
+      <section class="control-panel" aria-label="لوحة التصميم">
+        <div class="panel-head"><div><div class="eyebrow">مساعد ديسكوكو</div><h1>وش العالم اللي في بالك؟</h1></div><span class="ai-badge">AI</span></div>
+        <p class="intro">اوصف فكرتك، وأنا أبني لك الهوية والقنوات والرتب خلال ثوانٍ.</p>
+        <label class="prompt-box"><textarea id="worldPrompt" rows="5" placeholder="مثال: أبغى مجتمع ألعاب فضائي، جوّه حماسي ومناسب للبطولات...">أبغى مجتمع ألعاب فضائي، جوّه حماسي ومناسب للبطولات والفرق.</textarea><span class="counter"><span id="charCount">75</span>/300</span></label>
+        <div class="chips" aria-label="أفكار سريعة"><button data-prompt="مجتمع قيمنق تنافسي للبطولات والفرق">🎮 قيمنق</button><button data-prompt="مجتمع تقني للمبرمجين وصنّاع المنتجات">💻 تقني</button><button data-prompt="عالم أنمي مرح للنقاشات والفعاليات">🌸 أنمي</button><button data-prompt="مجتمع دراسة هادئ للتحفيز والمذاكرة">📚 دراسة</button></div>
+        <button class="generate-button" id="generateBtn"><span>✦</span><span class="generate-copy"><b>صمّم عالمي</b><small>ينشئ الهوية والهيكل كاملًا</small></span><span class="arrow">←</span></button>
+        <div class="generation-status" id="status" aria-live="polite"></div><div class="divider"><span>أو ابدأ من قالب</span></div>
+        <div class="template-grid"><button class="template" data-template="gaming"><span class="template-art purple">🎮</span><span><b>مجتمع قيمنق</b><small>12 قناة • 6 رتب</small></span></button><button class="template" data-template="creator"><span class="template-art pink">◒</span><span><b>صانع محتوى</b><small>9 قنوات • 5 رتب</small></span></button><button class="template" data-template="study"><span class="template-art blue">✎</span><span><b>نادي دراسة</b><small>10 قنوات • 4 رتب</small></span></button><button class="template" data-template="community"><span class="template-art orange">☀</span><span><b>مجتمع عام</b><small>8 قنوات • 4 رتب</small></span></button></div>
+        <div class="credit"><span>✦</span><div><b>3 تصميمات مجانية متبقية</b><small>تتجدد كل أسبوع</small></div><span class="credit-count">3/3</span></div>
+      </section>
+      <section class="canvas" aria-label="معاينة عالم ديسكورد">
+        <div class="canvas-toolbar"><div class="zoom"><button id="zoomOut">−</button><span id="zoomValue">100%</span><button id="zoomIn">＋</button></div><div class="history"><button>↶</button><button>↷</button><button id="resetBtn">إعادة ضبط</button></div><div class="save-state"><span>✓</span> تم الحفظ</div></div>
+        <div class="preview-stage"><div class="discord-window" id="discordWindow"><aside class="servers"><div class="discord-home">◖</div><span class="server-sep"></span><div class="server-icon selected" id="serverIcon">N</div><div class="server-icon mini cyan">A</div><div class="server-icon mini sunset">R</div><div class="server-add">＋</div></aside>
+        <aside class="channel-list"><div class="server-title"><span id="serverName">NOVA WORLD</span><span>⌄</span></div><div class="event-card"><span class="event-icon">🏆</span><div><small>الفعالية القادمة</small><b>بطولة الجمعة</b></div><span class="event-time">بعد 3 أيام</span></div><div id="channelGroups"></div><div class="user-strip"><div class="avatar">س<span class="online"></span></div><div><b>سلمان</b><small>متصل</small></div><span class="user-actions">🎙 ⚙</span></div></aside>
+        <section class="chat-area"><div class="chat-head"><div><span class="hash">#</span><b id="activeChannel">الدردشة-العامة</b><span class="topic">كل شيء يبدأ من هنا</span></div><div class="chat-tools">♧ ♟ ⌕</div></div><div class="chat-body"><div class="welcome"><div class="big-hash">#</div><h2>أهلًا بك في <span id="welcomeChannel">#الدردشة-العامة</span>!</h2><p>هذه بداية القناة. شارك عالمك مع أعضاء مجتمعك.</p></div><div class="message"><div class="avatar bot">N</div><div><div><b class="bot-name">Nova Bot</b><span class="bot-tag">BOT</span><small>اليوم، 8:42 م</small></div><p>أهلًا بالجميع في <b id="botWorld">NOVA WORLD</b> 🚀<br>اختاروا رتبتكم من قناة <span class="mention">#اختيار-الرتب</span> وابدؤوا الرحلة!</p><div class="embed"><div><small>جاهز تنطلق؟</small><b>عرّفنا بنفسك وشاركنا لعبتك المفضلة 🎮</b></div></div></div></div><div class="message"><div class="avatar member">م</div><div><div><b class="member-name">محمد</b><small>اليوم، 8:45 م</small></div><p>التصميم رهيب! متحمس لأول بطولة 🔥</p><div class="reactions"><span>🔥 4</span><span>💜 2</span></div></div></div></div><div class="composer"><button>＋</button><span>مراسلة #الدردشة-العامة</span><div>🎁 GIF ☺</div></div></section>
+        <aside class="member-list"><div class="member-section">الطاقم — 2</div><div class="member"><div class="avatar owner">ن<span class="online"></span></div><div><b>Nova</b><small>صاحب العالم</small></div><span class="crown">♛</span></div><div class="member"><div class="avatar bot">N<span class="online"></span></div><div><b>Nova Bot</b><small>BOT</small></div></div><div class="member-section">متصل — 4</div><div class="member"><div class="avatar member">م<span class="online"></span></div><div><b>محمد</b><small>يلعب Valorant</small></div></div></aside></div><div class="floating-hint"><span>✦</span><div><b>عالمك قابل للتعديل</b><small>اضغط على أي قناة أو رتبة لتغييرها</small></div><button>×</button></div></div>
+      </section>
+    </main>
+  </div>
+  <div class="modal-backdrop" id="modal" hidden><div class="modal"><button class="modal-close" id="modalClose">×</button><div class="modal-icon">◈</div><h2>اربط عالمك بديسكورد</h2><p>بعد ربط البوت واختيار السيرفر، سننشئ القنوات والرتب والصلاحيات التي صممتها هنا.</p><div class="permission-list"><span>✓ إنشاء وإدارة القنوات</span><span>✓ إنشاء وإدارة الرتب</span><span>✓ رفع صورة وهوية السيرفر</span></div><button class="button primary wide">متابعة إلى ديسكورد</button><small class="modal-note">هذه نسخة تجريبية؛ الربط الفعلي يضاف عند تجهيز تطبيق ديسكورد.</small></div></div>
+  <div class="toast" id="toast"></div><script src="app.js"></script>
+</body></html>
