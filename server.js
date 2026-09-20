@@ -74,6 +74,17 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS subscription_events (
+      id BIGSERIAL PRIMARY KEY,
+      provider TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      provider_ref TEXT,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(provider, event_id)
+    );
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGSERIAL PRIMARY KEY,
       actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -177,6 +188,7 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_subscription_events_user ON subscription_events(user_id, processed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_guild_connections_user ON guild_connections(user_id);
     CREATE INDEX IF NOT EXISTS idx_change_sets_user ON change_sets(user_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_usage_events_user ON usage_events(user_id, created_at DESC);
@@ -208,7 +220,7 @@ app.use((req, res, next) => {
   });
   next();
 });
-app.use(express.json({ limit: "512kb" }));
+app.use(express.json({ limit: "512kb", verify: (req, _res, buffer) => { if (req.path === "/api/webhooks/billing") req.rawBody = Buffer.from(buffer); } }));
 app.use("/api", (req, res, next) => {
   if (["POST", "PUT", "PATCH"].includes(req.method) && req.is("application/json") && (!req.body || typeof req.body !== "object" || Array.isArray(req.body))) return res.status(400).json({ error: "يجب أن تكون بيانات الطلب JSON object صالحًا" });
   next();
@@ -365,6 +377,24 @@ async function requirePlanCapacity(user, kind) {
   }
   return capacity;
 }
+const BILLING_PLANS = new Set(["trial", "starter", "growth", "complete"]);
+const BILLING_STATUSES = new Set(["trial", "active", "past_due", "cancelled", "expired"]);
+function verifyBillingSignature(req) {
+  const secret = process.env.BILLING_WEBHOOK_SECRET;
+  const signature = String(req.get("x-diskoko-signature") || "");
+  if (!secret || !signature || !req.rawBody) return false;
+  const expected = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
+  return signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+function billingPayload(body) {
+  const plan = String(body?.plan || "");
+  const status = String(body?.status || "");
+  const userId = Number(body?.user_id);
+  if (!Number.isSafeInteger(userId) || userId < 1 || !BILLING_PLANS.has(plan) || !BILLING_STATUSES.has(status)) return null;
+  const periodEnd = body.current_period_end ? new Date(body.current_period_end) : null;
+  if (periodEnd && Number.isNaN(periodEnd.getTime())) return null;
+  return { userId, plan, status, provider: String(body.provider || "external").slice(0, 40), providerRef: String(body.provider_ref || "").slice(0, 200) || null, periodEnd };
+}
 async function currentUser(req) {
   if (!req.session.userId) return null;
   const { rows } = await pool.query("SELECT * FROM users WHERE id=$1", [req.session.userId]);
@@ -455,7 +485,30 @@ app.get("/auth/google/callback", async (req, res, next) => {
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
 app.get("/api/me", async (req, res, next) => { try { const user = await currentUser(req); res.json({ user: user ? publicUser(user) : null, loginUrl: "/auth/discord" }); } catch (e) { next(e); } });
+app.post("/api/webhooks/billing", async (req, res, next) => {
+  if (!process.env.BILLING_WEBHOOK_SECRET) return res.status(503).json({ error: "لم يتم إعداد سر webhook للفوترة" });
+  if (!verifyBillingSignature(req)) return res.status(401).json({ error: "توقيع webhook غير صالح" });
+  const eventId = String(req.get("x-diskoko-event-id") || req.body?.id || "").slice(0, 200);
+  const eventType = String(req.body?.type || "subscription.updated").slice(0, 100);
+  const payload = billingPayload(req.body?.data || req.body);
+  if (!eventId || !payload) return res.status(400).json({ error: "بيانات حدث الفوترة غير صالحة" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query("INSERT INTO subscription_events(provider,event_id,event_type,provider_ref,user_id,payload) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(provider,event_id) DO NOTHING RETURNING id", [payload.provider, eventId, eventType, payload.providerRef, payload.userId, req.body]);
+    if (!inserted.rows[0]) { await client.query("ROLLBACK"); return res.json({ ok: true, duplicate: true }); }
+    const periodEnd = payload.periodEnd ? payload.periodEnd.toISOString() : null;
+    const existing = await client.query("SELECT id FROM subscriptions WHERE user_id=$1 AND provider=$2 AND COALESCE(provider_ref,'')=COALESCE($3,'') ORDER BY updated_at DESC LIMIT 1", [payload.userId, payload.provider, payload.providerRef]);
+    if (existing.rows[0]) await client.query("UPDATE subscriptions SET plan=$1,status=$2,current_period_end=$3,updated_at=NOW() WHERE id=$4", [payload.plan, payload.status, periodEnd, existing.rows[0].id]);
+    else await client.query("INSERT INTO subscriptions(user_id,provider,provider_ref,plan,status,current_period_end) VALUES($1,$2,$3,$4,$5,$6)", [payload.userId, payload.provider, payload.providerRef, payload.plan, payload.status, periodEnd]);
+    await client.query("UPDATE users SET plan=$1,status=$2,updated_at=NOW() WHERE id=$3", [payload.plan, ["cancelled", "expired"].includes(payload.status) ? "cancelled" : "active", payload.userId]);
+    await client.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES(NULL,$1,'user',$2,$3)", ["billing.subscription.updated", payload.userId, { event_id: eventId, provider: payload.provider, plan: payload.plan, status: payload.status }]);
+    await client.query("COMMIT");
+    res.json({ ok: true, eventId, plan: payload.plan, status: payload.status });
+  } catch (error) { await client.query("ROLLBACK").catch(() => {}); next(error); } finally { client.release(); }
+});
 app.get("/api/account/overview", requireUser, async (req, res, next) => { try { const [subscription, guilds, connections, activity, customBots, changeSets] = await Promise.all([pool.query("SELECT plan,status,current_period_end,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]), manageableGuilds(req.user), pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]), pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id]), planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); const byGuild = new Map(connections.rows.map((row) => [String(row.guild_id), row])); res.json({ user: publicUser(req.user), plan: subscription.rows[0] || { plan: req.user.plan, status: req.user.plan === "trial" ? "trial" : "active", current_period_end: null }, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth: changeSets }, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows }); } catch (e) { next(e); } });
+app.get("/api/account/subscription-events", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT provider,event_id,event_type,provider_ref,payload,processed_at FROM subscription_events WHERE user_id=$1 ORDER BY processed_at DESC LIMIT 50", [req.user.id]); res.json({ events: rows }); } catch (e) { next(e); } });
 app.get("/api/account/entitlements", requireUser, async (req, res, next) => { try { const [customBots, changeSetsPerMonth] = await Promise.all([planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); res.json({ plan: req.user.plan, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth } }); } catch (e) { next(e); } });
 app.get("/api/guilds", requireUser, async (req, res, next) => {
   try {
