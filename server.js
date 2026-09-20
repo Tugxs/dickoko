@@ -7,6 +7,8 @@ import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
 import nodemailer from "nodemailer";
 import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
+import { mountWorkspace, migrateWorkspace, startScheduleRunner } from "./lib/workspace-api.js";
+import { manageable, problem, supportedCommands, connectionState } from "./lib/workspace-domain.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -287,13 +289,21 @@ function decrypt(value) {
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
+const tokenRefreshes = new Map();
 async function discordUserToken(user) {
+  const key = String(user.id);
+  if (tokenRefreshes.has(key)) return tokenRefreshes.get(key);
+  const task = refreshDiscordUserToken(user);
+  tokenRefreshes.set(key, task);
+  try { return await task; } finally { tokenRefreshes.delete(key); }
+}
+async function refreshDiscordUserToken(user) {
   let accessToken = decrypt(user?.access_token);
   const expiresAt = user?.token_expires_at ? new Date(user.token_expires_at).getTime() : 0;
   if (accessToken && expiresAt > Date.now() + 60_000) return accessToken;
   const refreshToken = decrypt(user?.refresh_token);
   if (!refreshToken || !process.env.DISCORD_CLIENT_ID || !process.env.DISCORD_CLIENT_SECRET) return accessToken;
-  const response = await fetch(`${DISCORD_API}/oauth2/token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: process.env.DISCORD_CLIENT_ID, client_secret: process.env.DISCORD_CLIENT_SECRET, grant_type: "refresh_token", refresh_token: refreshToken }) });
+  const response = await fetch(`${DISCORD_API}/oauth2/token`, { signal: AbortSignal.timeout(15000), method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: process.env.DISCORD_CLIENT_ID, client_secret: process.env.DISCORD_CLIENT_SECRET, grant_type: "refresh_token", refresh_token: refreshToken }) });
   if (!response.ok) return null;
   const tokens = await response.json();
   const expires = new Date(Date.now() + Number(tokens.expires_in || 604800) * 1000);
@@ -302,16 +312,16 @@ async function discordUserToken(user) {
 }
 async function discordBotFetch(pathname, options = {}) {
   if (!process.env.DISCORD_BOT_TOKEN) return { ok: false, status: 503, data: { message: "Discord bot غير مهيأ" } };
-  const response = await fetch(`${DISCORD_API}${pathname}`, { ...options, headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, "Content-Type": "application/json", ...(options.headers || {}) } });
+  const response = await fetch(`${DISCORD_API}${pathname}`, { signal: AbortSignal.timeout(20000), ...options, headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, "Content-Type": "application/json", ...(options.headers || {}) } });
   let data = null; try { data = await response.json(); } catch { data = {}; }
   return { ok: response.ok, status: response.status, data, headers: response.headers };
 }
 async function manageableGuilds(user) {
   const token = await discordUserToken(user);
-  if (!token) return [];
-  const response = await fetch(`${DISCORD_API}/users/@me/guilds`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) return [];
-  return (await response.json()).filter((g) => (BigInt(g.permissions || "0") & 0x20n) === 0x20n || g.owner);
+  if (!token) throw problem('انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.', 401);
+  const response = await fetch(`${DISCORD_API}/users/@me/guilds`, { signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw problem(response.status === 401 ? 'انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.' : 'تعذر تحميل السيرفرات من Discord. أعد المحاولة بعد قليل.', response.status === 401 ? 401 : 502);
+  return (await response.json()).filter(manageable);
 }
 async function authorizedGuild(user, guildId) {
   return (await manageableGuilds(user)).find((guild) => String(guild.id) === String(guildId)) || null;
@@ -327,7 +337,7 @@ function makeTemplatePlan(templateKey) {
   template.categories.forEach((category, categoryIndex) => {
     const categoryKey = `category:${categoryIndex}:${category.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     operations.push({ operation_key: categoryKey, resource_type: "category", name: category.name, channels: category.channels });
-    category.channels.forEach((name, channelIndex) => operations.push({ operation_key: `${categoryKey}:channel:${channelIndex}`, resource_type: "channel", name, parent_key: categoryKey }));
+    category.channels.forEach((name, channelIndex) => operations.push({ operation_key: `${categoryKey}:channel:${channelIndex}`, resource_type: "channel", name, type: category.name === 'VOICE LOUNGE' ? 2 : 0, parent_key: categoryKey }));
   });
   template.roles.forEach((name, index) => operations.push({ operation_key: `role:${index}:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, resource_type: "role", name }));
   return { template_key: templateKey, name: template.name, operations };
@@ -529,7 +539,7 @@ app.get("/api/guilds/:guildId/connection", requireUser, async (req, res, next) =
     const bot = await discordBotFetch(`/guilds/${encodeURIComponent(req.params.guildId)}`);
     const row = (await pool.query("SELECT * FROM guild_connections WHERE user_id=$1 AND guild_id=$2", [req.user.id, req.params.guildId])).rows[0] || null;
     const botInstalled = bot.ok;
-    const connection = { ...(row || {}), guild_id: guild.id, guild_name: guild.name, bot_installed: botInstalled, install_status: botInstalled ? "installed" : (row?.install_status || "install_required"), required_permissions: REQUIRED_BOT_PERMISSIONS };
+    const connection = { ...(row || {}), guild_id: guild.id, guild_name: guild.name, bot_installed: botInstalled, install_status: connectionState(bot), required_permissions: REQUIRED_BOT_PERMISSIONS };
     await pool.query("INSERT INTO guild_connections(user_id,guild_id,guild_name,install_status,last_verified_at,updated_at) VALUES($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT(user_id,guild_id) DO UPDATE SET guild_name=EXCLUDED.guild_name,install_status=EXCLUDED.install_status,last_verified_at=NOW(),updated_at=NOW()", [req.user.id, guild.id, guild.name, connection.install_status]);
     res.json({ connection });
   } catch (e) { next(e); }
@@ -548,7 +558,7 @@ app.post("/api/guilds/:guildId/connection/verify", requireUser, async (req, res,
     const guild = await authorizedGuild(req.user, req.params.guildId);
     if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
     const bot = await discordBotFetch(`/guilds/${encodeURIComponent(req.params.guildId)}`);
-    const status = bot.ok ? "installed" : "permissions_insufficient";
+    const status = connectionState(bot); if (status === "unavailable") return res.status(502).json({ error: "تعذر التحقق من Discord الآن. أعد المحاولة دون إعادة تثبيت البوت." });
     await pool.query("INSERT INTO guild_connections(user_id,guild_id,guild_name,install_status,last_error,last_verified_at,updated_at) VALUES($1,$2,$3,$4,$5,NOW(),NOW()) ON CONFLICT(user_id,guild_id) DO UPDATE SET guild_name=EXCLUDED.guild_name,install_status=EXCLUDED.install_status,last_error=EXCLUDED.last_error,last_verified_at=NOW(),updated_at=NOW()", [req.user.id, guild.id, guild.name, status, bot.ok ? null : `Discord API ${bot.status}`]);
     await audit(req.user.id, "guild.verify", "guild", guild.id, { status });
     res.json({ ok: bot.ok, status, bot: bot.ok ? { id: bot.data.id, name: bot.data.name } : null });
@@ -585,7 +595,7 @@ const COMMAND_CATALOG = [
 ];
 const DEFAULT_BOT_SETTINGS = { enabled: true, command_keys: ["help", "ping", "about"], log_channel_id: null, locale: "ar", welcome_enabled: false };
 app.get("/api/guilds/:guildId/bot-settings", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const row = (await pool.query("SELECT guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at FROM bot_guild_settings WHERE guild_id=$1", [guild.id])).rows[0]; res.json({ settings: row || { guild_id: guild.id, ...DEFAULT_BOT_SETTINGS } }); } catch (e) { next(e); } });
-app.put("/api/guilds/:guildId/bot-settings", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const commandKeys = Array.isArray(req.body.command_keys) ? [...new Set(req.body.command_keys.map((key) => String(key)).filter((key) => COMMAND_CATALOG.some((command) => command.key === key)))].slice(0, 50) : DEFAULT_BOT_SETTINGS.command_keys; const locale = ["ar", "en"].includes(req.body.locale) ? req.body.locale : "ar"; const enabled = req.body.enabled !== false; const welcomeEnabled = req.body.welcome_enabled === true; const logChannelId = req.body.log_channel_id ? String(req.body.log_channel_id).slice(0, 30) : null; const { rows } = await pool.query("INSERT INTO bot_guild_settings(guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at) VALUES($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT(guild_id) DO UPDATE SET enabled=EXCLUDED.enabled,command_keys=EXCLUDED.command_keys,log_channel_id=EXCLUDED.log_channel_id,locale=EXCLUDED.locale,welcome_enabled=EXCLUDED.welcome_enabled,updated_at=NOW() RETURNING guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at", [guild.id, enabled, JSON.stringify(commandKeys), logChannelId, locale, welcomeEnabled]); await audit(req.user.id, "bot.settings.update", "guild", guild.id, { command_keys: commandKeys, enabled, log_channel_id: logChannelId, locale, welcome_enabled: welcomeEnabled }); res.json({ settings: rows[0] }); } catch (e) { next(e); } });
+app.put("/api/guilds/:guildId/bot-settings", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const commandKeys = Array.isArray(req.body.command_keys) ? [...new Set(req.body.command_keys.map((key) => String(key)).filter((key) => supportedCommands.includes(key)))].slice(0, 50) : DEFAULT_BOT_SETTINGS.command_keys; const locale = ["ar", "en"].includes(req.body.locale) ? req.body.locale : "ar"; const enabled = req.body.enabled !== false; const welcomeEnabled = req.body.welcome_enabled === true; const logChannelId = req.body.log_channel_id ? String(req.body.log_channel_id).slice(0, 30) : null; if (logChannelId) { const channel = await discordBotFetch(`/channels/${encodeURIComponent(logChannelId)}`); if (!channel.ok || channel.data.guild_id !== guild.id || ![0,5].includes(channel.data.type)) return res.status(400).json({ error: "اختر قناة نصية من هذا السيرفر لسجل البوت" }); } const { rows } = await pool.query("INSERT INTO bot_guild_settings(guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at) VALUES($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT(guild_id) DO UPDATE SET enabled=EXCLUDED.enabled,command_keys=EXCLUDED.command_keys,log_channel_id=EXCLUDED.log_channel_id,locale=EXCLUDED.locale,welcome_enabled=EXCLUDED.welcome_enabled,updated_at=NOW() RETURNING guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at", [guild.id, enabled, JSON.stringify(commandKeys), logChannelId, locale, welcomeEnabled]); await audit(req.user.id, "bot.settings.update", "guild", guild.id, { command_keys: commandKeys, enabled, log_channel_id: logChannelId, locale, welcome_enabled: welcomeEnabled }); res.json({ settings: rows[0] }); } catch (e) { next(e); } });
 app.get("/api/bots/catalog", requireUser, (_req, res) => res.json({ bots: BOT_CATALOG }));
 app.get("/api/bots/commands", requireUser, (_req, res) => res.json({ commands: COMMAND_CATALOG, groups: [...new Set(COMMAND_CATALOG.map((command) => command.group))] }));
 app.get("/api/custom-templates", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,description,definition,status,version,created_at,updated_at FROM custom_templates WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ templates: rows }); } catch (e) { next(e); } });
@@ -640,7 +650,7 @@ app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
     ]);
     const channelRows = channels.ok && Array.isArray(channels.data) ? channels.data : [];
     const roleRows = roles.ok && Array.isArray(roles.data) ? roles.data : [];
-    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: Boolean(process.env.DISCORD_BOT_TOKEN), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, usage: monthUsage.rows[0] || { commands: 0, succeeded: 0, failed: 0 }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
+    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: getDiscordBotStatus().online, installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, usage: monthUsage.rows[0] || { commands: 0, succeeded: 0, failed: 0 }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
   } catch (e) { next(e); }
 });
 app.get("/api/guilds/:guildId/change-sets", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const rows = await pool.query("SELECT id,template_key,status,plan,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 30", [req.user.id, guild.id]); res.json({ changeSets: rows.rows }); } catch (e) { next(e); } });
@@ -656,59 +666,8 @@ app.post("/api/projects/:id/bind-guild", requireUser, async (req, res, next) => 
     res.json({ project: rows[0] });
   } catch (e) { next(e); }
 });
-app.post("/api/change-sets", requireUser, async (req, res, next) => {
-  try {
-    await requirePlanCapacity(req.user, "changeSetsPerMonth");
-    const guild = await authorizedGuild(req.user, req.body.guildId);
-    if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
-    const templateKey = String(req.body.templateKey || "gaming");
-    const plan = makeTemplatePlan(templateKey);
-    const projectId = req.body.projectId ? Number(req.body.projectId) : null;
-    const { rows } = await pool.query("INSERT INTO change_sets(user_id,guild_id,project_id,template_key,status,plan) VALUES($1,$2,$3,$4,'draft',$5) RETURNING *", [req.user.id, guild.id, projectId, templateKey, plan]);
-    await pool.query("INSERT INTO change_operations(change_set_id,operation_key,resource_type,result) SELECT $1,(item->>'operation_key'),(item->>'resource_type'),item FROM jsonb_array_elements($2::jsonb->'operations') item", [rows[0].id, JSON.stringify(plan)]);
-    await audit(req.user.id, "change_set.create", "change_set", rows[0].id, { guild_id: guild.id, template_key: templateKey });
-    res.status(201).json({ changeSet: rows[0], plan });
-  } catch (e) { next(e); }
-});
+mountWorkspace(app, { pool, requireUser, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, templates: TEMPLATES, makeTemplatePlan, botStatus: getDiscordBotStatus });
 app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
-app.post("/api/change-sets/:id/apply", requireUser, async (req, res, next) => {
-  try {
-    const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0];
-    if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" });
-    const guild = await authorizedGuild(req.user, changeSet.guild_id);
-    if (!guild) return res.status(403).json({ error: "لم تعد تملك صلاحية إدارة هذا السيرفر" });
-    const guildCheck = await discordBotFetch(`/guilds/${encodeURIComponent(changeSet.guild_id)}`);
-    if (!guildCheck.ok) return res.status(409).json({ error: "ثبت Bot Diskoko في السيرفر أولًا ثم أعد التحقق" });
-    const [channelsResponse, rolesResponse] = await Promise.all([discordBotFetch(`/guilds/${changeSet.guild_id}/channels`), discordBotFetch(`/guilds/${changeSet.guild_id}/roles`)]);
-    if (!channelsResponse.ok || !rolesResponse.ok) return res.status(502).json({ error: "تعذر قراءة بنية السيرفر من Discord" });
-    await pool.query("UPDATE change_sets SET status='running',updated_at=NOW() WHERE id=$1", [changeSet.id]);
-    const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 AND status<>'succeeded' ORDER BY id", [changeSet.id])).rows;
-    const categories = new Map(channelsResponse.data.filter((item) => item.type === 4).map((item) => [item.name.toLowerCase(), item]));
-    const channels = channelsResponse.data.filter((item) => item.type === 0);
-    const roles = new Map(rolesResponse.data.map((item) => [item.name.toLowerCase(), item]));
-    const categoryResources = new Map();
-    for (const operation of operations) {
-      const data = operation.result || {};
-      let resource = null;
-      if (operation.resource_type === "category") resource = categories.get(String(data.name || "").toLowerCase());
-      if (operation.resource_type === "channel") { const parentId = categoryResources.get(data.parent_key); resource = channels.find((item) => item.name.toLowerCase() === String(data.name || "").toLowerCase() && (!parentId || item.parent_id === parentId)); }
-      if (operation.resource_type === "role") resource = roles.get(String(data.name || "").toLowerCase());
-      if (!resource) {
-        const parentId = categoryResources.get(data.parent_key);
-        const body = operation.resource_type === "category" ? { name: data.name, type: 4 } : operation.resource_type === "channel" ? { name: data.name, type: 0, ...(parentId ? { parent_id: parentId } : {}) } : { name: data.name, mentionable: false };
-        const created = await discordBotFetch(`/guilds/${changeSet.guild_id}/${operation.resource_type === "role" ? "roles" : "channels"}`, { method: "POST", body: JSON.stringify(body) });
-        if (!created.ok) { await pool.query("UPDATE change_operations SET status='failed',result=$1,updated_at=NOW() WHERE id=$2", [created.data, operation.id]); throw new Error(`Discord ${created.status} while creating ${operation.resource_type}`); }
-        resource = created.data;
-      }
-      if (operation.resource_type === "category") categoryResources.set(operation.operation_key, resource.id);
-      await pool.query("UPDATE change_operations SET status='succeeded',resource_id=$1,result=$2,updated_at=NOW() WHERE id=$3", [resource.id, resource, operation.id]);
-      await pool.query("INSERT INTO usage_events(user_id,guild_id,event_type,metadata) VALUES($1,$2,$3,$4)", [req.user.id, changeSet.guild_id, `discord.${operation.resource_type}.ensure`, { change_set_id: changeSet.id, resource_id: resource.id }]);
-    }
-    await pool.query("UPDATE change_sets SET status='succeeded',updated_at=NOW() WHERE id=$1", [changeSet.id]);
-    await audit(req.user.id, "change_set.apply", "change_set", changeSet.id, { guild_id: changeSet.guild_id });
-    res.json({ ok: true, status: "succeeded", changeSetId: changeSet.id });
-  } catch (e) { await pool.query("UPDATE change_sets SET status='failed',updated_at=NOW() WHERE id=$1", [req.params.id]).catch(() => {}); next(e); }
-});
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
 app.get("/api/projects/:id/export", requireUser, async (req, res, next) => { try { const project = (await pool.query("SELECT id,name,guild_id,design,deployment_status,created_at,updated_at FROM projects WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!project) return res.status(404).json({ error: "المشروع غير موجود" }); await audit(req.user.id, "project.export", "project", project.id); res.set("Content-Disposition", `attachment; filename=\"diskoko-project-${project.id}.json\"`); res.json({ exported_at: new Date().toISOString(), project }); } catch (e) { next(e); } });
 app.post("/api/projects", requireUser, async (req, res, next) => {
@@ -752,21 +711,22 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
 app.get("/api/admin/audit", requireAdmin, async (_req, res, next) => { try { const { rows } = await pool.query("SELECT a.*,u.username actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 100"); res.json({ logs: rows }); } catch (e) { next(e); } });
 
 app.use((req, res, next) => {
-  if (/^\/(?:server\.js|discord-bot\.js|package(?:-lock)?\.json|\.env(?:\..*)?|node_modules(?:\/|$)|docs(?:\/|$))/.test(req.path)) return res.status(404).end();
+  if (/^\/(?:server\.js|discord-bot\.js|package(?:-lock)?\.json|\.env(?:\..*)?|node_modules(?:\/|$)|docs(?:\/|$)|lib(?:\/|$)|tests(?:\/|$)|scripts(?:\/|$))/.test(req.path)) return res.status(404).end();
   next();
 });
 app.use((req, res, next) => {
-  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
   next();
 });
 app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" }));
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
-app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
 app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
 app.use((error, _req, res, _next) => { console.error(error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
 
-migrate().then(() => {
+migrate().then(() => migrateWorkspace(pool)).then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
   void startDiscordBot({ pool });
+  startScheduleRunner({ pool, discordBotFetch, authorizedGuild });
 }).catch((error) => { console.error("Database migration failed", error); process.exit(1); });

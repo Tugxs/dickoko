@@ -51,7 +51,18 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+
+  // Count events only after an administrator opts in. Never read or store message content.
+  client.on(Events.MessageCreate, async (message) => {
+    if (!databasePool || !message.guildId || message.author.bot) return;
+    try {
+      await databasePool.query(`INSERT INTO community_activity(guild_id,day,user_id,channel_id,display_name,messages)
+        SELECT $1,(NOW() AT TIME ZONE 'UTC')::date,$2,$3,$4,1 FROM workspace_preferences WHERE guild_id=$1 AND analytics_enabled=TRUE
+        ON CONFLICT(guild_id,day,user_id,channel_id) DO UPDATE SET messages=community_activity.messages+1,display_name=EXCLUDED.display_name`,
+      [message.guildId, message.author.id, message.channelId, (message.member?.displayName || message.author.globalName || message.author.username).slice(0, 100)]);
+    } catch (error) { console.error('Activity count failed', error.message); }
+  });
 
   client.once("ready", async (readyClient) => {
     state = {
@@ -95,14 +106,18 @@ export async function startDiscordBot({ pool } = {}) {
     const subcommand = interaction.options.getSubcommand();
     const settings = await guildSettings(interaction.guildId);
     if (!settings.enabled || !settings.command_keys.includes(subcommand)) return interaction.reply({ content: settings.locale === "en" ? "This command is disabled for this server." : "هذا الأمر غير مفعّل لهذا السيرفر.", ephemeral: true });
-    const replies = {
-      help: "الأوامر المتاحة: `/diskoko ping` لفحص الاستجابة، و`/diskoko about` لمعرفة حالة Diskoko.",
+    const replies = settings.locale === 'en' ? {
+      help: `Available commands: ${settings.command_keys.map(key => '`/diskoko ' + key + '`').join(', ')}`,
+      ping: `Pong — ${Date.now() - interaction.createdTimestamp}ms.`,
+      about: 'Diskoko helps you manage your community with reviewed changes, scheduled announcements and activity insights.',
+    } : {
+      help: `الأوامر المفعلة: ${settings.command_keys.map(key => '`/diskoko ' + key + '`').join('، ')}`,
       ping: `Pong — ${Date.now() - interaction.createdTimestamp}ms.`,
       about: "Diskoko يساعدك على تصميم وإدارة مجتمع Discord مع مراجعة بشرية قبل التغييرات الحساسة.",
     };
     try {
       await interaction.reply({ content: replies[subcommand] || replies.help, ephemeral: true });
-      if (settings.log_channel_id) { const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null); if (channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {}); }
+      if (settings.log_channel_id) { const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null); if (channel?.guildId === interaction.guildId && channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {}); }
     } catch (error) { console.error("Discord interaction reply failed", error); }
   });
   client.on("error", (error) => {
