@@ -15,12 +15,36 @@ const COMMANDS = [
   new SlashCommandBuilder().setName("diskoko").setDescription("مساعد Diskoko لمجتمعك").addSubcommand((command) => command.setName("help").setDescription("عرض المساعدة")).addSubcommand((command) => command.setName("ping").setDescription("فحص سرعة الاستجابة")).addSubcommand((command) => command.setName("about").setDescription("عرض معلومات Diskoko")),
 ];
 const COMMAND_JSON = COMMANDS.map((command) => command.toJSON());
+const DEFAULT_SETTINGS = { enabled: true, command_keys: ["help", "ping", "about"], log_channel_id: null, locale: "ar", welcome_enabled: false };
+let databasePool = null;
+
+async function guildSettings(guildId) {
+  if (!databasePool) return DEFAULT_SETTINGS;
+  try {
+    const { rows } = await databasePool.query("SELECT enabled,command_keys,log_channel_id,locale,welcome_enabled FROM bot_guild_settings WHERE guild_id=$1", [guildId]);
+    return rows[0] ? { ...DEFAULT_SETTINGS, ...rows[0] } : DEFAULT_SETTINGS;
+  } catch (error) {
+    console.error("Could not read bot guild settings", error);
+    return DEFAULT_SETTINGS;
+  }
+}
+
+async function registerGuildCommands(rest, applicationId, guildId, token) {
+  try {
+    await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: COMMAND_JSON });
+    return true;
+  } catch (error) {
+    console.error(`Could not register commands for guild ${guildId}`, error);
+    return false;
+  }
+}
 
 export function getDiscordBotStatus() {
   return { ...state };
 }
 
-export async function startDiscordBot() {
+export async function startDiscordBot({ pool } = {}) {
+  databasePool = pool || null;
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
     console.warn("DISCORD_BOT_TOKEN is missing; Discord bot will stay offline");
@@ -46,13 +70,8 @@ export async function startDiscordBot() {
 
     const rest = new REST({ version: "10" }).setToken(token);
     for (const guild of readyClient.guilds.cache.values()) {
-      try {
-        await rest.put(Routes.applicationGuildCommands(readyClient.user.id, guild.id), { body: COMMAND_JSON });
-        state.commands.registered += COMMAND_JSON.length;
-      } catch (error) {
-        state.commands.failed += COMMAND_JSON.length;
-        console.error(`Could not register commands for guild ${guild.id}`, error);
-      }
+      if (await registerGuildCommands(rest, readyClient.user.id, guild.id, token)) state.commands.registered += COMMAND_JSON.length;
+      else state.commands.failed += COMMAND_JSON.length;
     }
 
     if (readyClient.user.username !== BOT_NAME) {
@@ -69,17 +88,22 @@ export async function startDiscordBot() {
     console.log(`Discord bot online as ${readyClient.user.tag} in ${state.guilds} guild(s)`);
   });
 
-  client.on("guildCreate", () => { state.guilds = client.guilds.cache.size; });
+  client.on("guildCreate", async (guild) => { state.guilds = client.guilds.cache.size; const rest = new REST({ version: "10" }).setToken(token); if (await registerGuildCommands(rest, client.user.id, guild.id, token)) state.commands.registered += COMMAND_JSON.length; else state.commands.failed += COMMAND_JSON.length; });
   client.on("guildDelete", () => { state.guilds = client.guilds.cache.size; });
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand() || interaction.commandName !== "diskoko") return;
     const subcommand = interaction.options.getSubcommand();
+    const settings = await guildSettings(interaction.guildId);
+    if (!settings.enabled || !settings.command_keys.includes(subcommand)) return interaction.reply({ content: settings.locale === "en" ? "This command is disabled for this server." : "هذا الأمر غير مفعّل لهذا السيرفر.", ephemeral: true });
     const replies = {
       help: "الأوامر المتاحة: `/diskoko ping` لفحص الاستجابة، و`/diskoko about` لمعرفة حالة Diskoko.",
       ping: `Pong — ${Date.now() - interaction.createdTimestamp}ms.`,
       about: "Diskoko يساعدك على تصميم وإدارة مجتمع Discord مع مراجعة بشرية قبل التغييرات الحساسة.",
     };
-    try { await interaction.reply({ content: replies[subcommand] || replies.help, ephemeral: true }); } catch (error) { console.error("Discord interaction reply failed", error); }
+    try {
+      await interaction.reply({ content: replies[subcommand] || replies.help, ephemeral: true });
+      if (settings.log_channel_id) { const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null); if (channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {}); }
+    } catch (error) { console.error("Discord interaction reply failed", error); }
   });
   client.on("error", (error) => {
     console.error("Discord client error", error);
