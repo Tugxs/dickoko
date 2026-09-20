@@ -5,6 +5,7 @@ import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
+import nodemailer from "nodemailer";
 import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
 
 const { Pool } = pg;
@@ -28,7 +29,8 @@ async function migrate() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id BIGSERIAL PRIMARY KEY,
-      discord_id TEXT UNIQUE NOT NULL,
+      discord_id TEXT UNIQUE,
+      google_id TEXT UNIQUE,
       username TEXT NOT NULL,
       display_name TEXT,
       avatar TEXT,
@@ -76,6 +78,9 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
   `);
   await pool.query(`
+    ALTER TABLE users ALTER COLUMN discord_id DROP NOT NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMPTZ;
     ALTER TABLE users DROP CONSTRAINT IF EXISTS users_plan_check;
     UPDATE users SET plan = CASE plan WHEN 'free' THEN 'trial' WHEN 'pro' THEN 'growth' WHEN 'studio' THEN 'complete' ELSE plan END;
     ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'trial';
@@ -139,7 +144,8 @@ function decrypt(value) {
 }
 function isAdmin(user) {
   const ids = (process.env.ADMIN_DISCORD_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
-  return !!user && ids.includes(String(user.discord_id));
+  const emails = (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return !!user && (ids.includes(String(user.discord_id)) || emails.includes(String(user.email || "").toLowerCase()));
 }
 function publicUser(row) {
   return { id: row.id, discordId: row.discord_id, username: row.username, displayName: row.display_name, avatar: row.avatar, email: row.email, plan: row.plan, status: row.status, isAdmin: isAdmin(row), createdAt: row.created_at };
@@ -161,6 +167,18 @@ function requireAdmin(req, res, next) {
 }
 async function audit(actor, action, targetType, targetId, details = {}) {
   await pool.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [actor || null, action, targetType, targetId ? String(targetId) : null, details]);
+}
+
+function mailTransport() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  return nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 465), secure: Number(process.env.SMTP_PORT || 465) === 465, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
+}
+async function sendWelcomeEmail(user) {
+  if (!user?.email || user.welcome_sent_at) return;
+  const transport = mailTransport();
+  if (!transport) return;
+  await transport.sendMail({ from: process.env.SMTP_FROM || "diskoko <support@diskoko.com>", to: user.email, replyTo: "support@diskoko.com", subject: "مرحبًا بك في diskoko | ديسكوكو", text: `أهلًا ${user.display_name || user.username}، تم إنشاء حسابك في ديسكوكو بنجاح. افتح حسابك من https://diskoko.com/account.html وللدعم: support@diskoko.com`, html: `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:620px;margin:auto"><h1>مرحبًا بك في ديسكوكو</h1><p>أهلًا ${user.display_name || user.username}، تم إنشاء حسابك بنجاح.</p><p><a href="https://diskoko.com/account.html">افتح لوحة حسابك</a></p><p>للمساعدة: <a href="mailto:support@diskoko.com">support@diskoko.com</a></p></div>` });
+  await pool.query("UPDATE users SET welcome_sent_at=NOW() WHERE id=$1", [user.id]);
 }
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, service: "diskoko", bot: getDiscordBotStatus(), time: new Date().toISOString() }));
@@ -186,7 +204,33 @@ app.get("/auth/discord/callback", async (req, res, next) => {
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(discord_id) DO UPDATE SET username=EXCLUDED.username,display_name=EXCLUDED.display_name,avatar=EXCLUDED.avatar,email=EXCLUDED.email,access_token=EXCLUDED.access_token,refresh_token=EXCLUDED.refresh_token,token_expires_at=EXCLUDED.token_expires_at,last_login_at=NOW(),updated_at=NOW() RETURNING *`,
       [profile.id, profile.username, profile.global_name || profile.username, avatar, profile.email || null, encrypt(tokens.access_token), encrypt(tokens.refresh_token), expires]);
     req.session.userId = rows[0].id;
+    void sendWelcomeEmail(rows[0]).catch((error) => console.error("Welcome email failed", error));
     await audit(rows[0].id, "login", "user", rows[0].id);
+    res.redirect(isAdmin(rows[0]) ? "/admin.html" : "/account.html");
+  } catch (error) { next(error); }
+});
+app.get("/auth/google", rateLimit(12, 60_000), (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).send("تسجيل Google غير مفعّل بعد");
+  const state = crypto.randomBytes(24).toString("hex");
+  req.session.googleOauthState = state;
+  const params = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: `${BASE_URL}/auth/google/callback`, response_type: "code", scope: "openid email profile", state, prompt: "select_account" });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+app.get("/auth/google/callback", async (req, res, next) => {
+  try {
+    if (!req.query.code || req.query.state !== req.session.googleOauthState) return res.status(400).send("طلب تسجيل الدخول غير صالح");
+    delete req.session.googleOauthState;
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, grant_type: "authorization_code", code: String(req.query.code), redirect_uri: `${BASE_URL}/auth/google/callback` }) });
+    if (!tokenResponse.ok) throw new Error("Google token exchange failed");
+    const tokens = await tokenResponse.json();
+    const profileResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${tokens.access_token}` } });
+    if (!profileResponse.ok) throw new Error("Google profile request failed");
+    const profile = await profileResponse.json();
+    const username = String(profile.email || profile.name || profile.sub).slice(0, 80);
+    const { rows } = await pool.query(`INSERT INTO users(google_id,username,display_name,avatar,email,last_login_at) VALUES($1,$2,$3,$4,$5,NOW()) ON CONFLICT(google_id) DO UPDATE SET username=EXCLUDED.username,display_name=EXCLUDED.display_name,avatar=EXCLUDED.avatar,email=EXCLUDED.email,last_login_at=NOW(),updated_at=NOW() RETURNING *`, [profile.sub, username, profile.name || username, profile.picture || null, profile.email || null]);
+    req.session.userId = rows[0].id;
+    void sendWelcomeEmail(rows[0]).catch((error) => console.error("Welcome email failed", error));
+    await audit(rows[0].id, "login.google", "user", rows[0].id);
     res.redirect(isAdmin(rows[0]) ? "/admin.html" : "/account.html");
   } catch (error) { next(error); }
 });
