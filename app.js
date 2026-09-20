@@ -20,13 +20,11 @@ renderWorld();renderPanel();
 /* diskoko landing interactions and Diskoko Runner */
 const homeOverlay=$('#homeOverlay');
 async function studioSession(){try{const r=await fetch('/api/me',{credentials:'include'});if(!r.ok)return null;const d=await r.json();return d.user||null}catch{return null}}
-function showGate(){const g=$('#studioGate');if(g)g.hidden=false;document.body.style.overflow='auto'}
-function hideGate(){const g=$('#studioGate');if(g)g.hidden=true}
 async function requestStudio(){const user=await studioSession();if(user){closeHome();return}window.location.href='/login?returnTo=%2F%23dashboard'}
 window.diskokoRequireStudio=requestStudio
-function closeHome(){hideGate();homeOverlay.classList.add('home-hidden');document.body.style.overflow='hidden';window.location.hash='dashboard'}
+function closeHome(){homeOverlay.classList.add('home-hidden');document.body.style.overflow='hidden';window.location.hash='dashboard'}
 function showHome(){homeOverlay.classList.remove('home-hidden');document.body.style.overflow='auto';window.location.hash='home';homeOverlay.scrollTop=0}
-$('#openDashboard')?.addEventListener('click',requestStudio);$('#heroStart')?.addEventListener('click',requestStudio);$('#gateClose')?.addEventListener('click',hideGate);$('#gateBack')?.addEventListener('click',hideGate);$('#homeBtn')?.addEventListener('click',showHome);$('#homeLink')?.addEventListener('click',e=>{e.preventDefault();showHome()});$('#heroLearn')?.addEventListener('click',()=>document.querySelector('#plans')?.scrollIntoView({behavior:'smooth'}));
+$('#openDashboard')?.addEventListener('click',requestStudio);$('#heroStart')?.addEventListener('click',requestStudio);$('#homeBtn')?.addEventListener('click',showHome);$('#homeLink')?.addEventListener('click',e=>{e.preventDefault();showHome()});$('#heroLearn')?.addEventListener('click',()=>document.querySelector('#plans')?.scrollIntoView({behavior:'smooth'}));
 if(window.location.hash==='#dashboard' || window.location.hash==='#newserver'){showHome();requestStudio();}
 $$('.plan-button').forEach(b=>b.addEventListener('click',()=>{const plan=b.dataset.plan;state.subscription=plan;save();if(plan==='Studio'){toast('تم تسجيل اهتمامك بخطة Studio');closeHome()}else{toast(`تم اختيار خطة ${plan}`);closeHome()}}));
 const DISCORD_SUPPORT_URL='https://discord.gg/4STrh8cRM';
