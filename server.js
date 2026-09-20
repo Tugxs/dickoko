@@ -629,17 +629,18 @@ app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
   try {
     const guild = await authorizedGuild(req.user, req.params.guildId);
     if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
-    const [connection, channels, roles, changes, events, draft] = await Promise.all([
+    const [connection, channels, roles, changes, events, draft, monthUsage] = await Promise.all([
       pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at FROM guild_connections WHERE user_id=$1 AND guild_id=$2", [req.user.id, guild.id]),
       discordBotFetch(`/guilds/${guild.id}/channels`),
       discordBotFetch(`/guilds/${guild.id}/roles`),
       pool.query("SELECT id,template_key,status,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 8", [req.user.id, guild.id]),
       pool.query("SELECT event_type,quantity,metadata,created_at FROM usage_events WHERE user_id=$1 AND guild_id=$2 ORDER BY created_at DESC LIMIT 20", [req.user.id, guild.id]),
       pool.query("SELECT id,name,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 1", [req.user.id, guild.id]),
+      pool.query("SELECT COUNT(*)::int AS commands, COUNT(*) FILTER (WHERE event_type LIKE '%succeeded%')::int AS succeeded, COUNT(*) FILTER (WHERE event_type LIKE '%failed%')::int AS failed FROM usage_events WHERE user_id=$1 AND guild_id=$2 AND created_at >= date_trunc('month', NOW())", [req.user.id, guild.id]),
     ]);
     const channelRows = channels.ok && Array.isArray(channels.data) ? channels.data : [];
     const roleRows = roles.ok && Array.isArray(roles.data) ? roles.data : [];
-    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: Boolean(process.env.DISCORD_BOT_TOKEN), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
+    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: Boolean(process.env.DISCORD_BOT_TOKEN), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, usage: monthUsage.rows[0] || { commands: 0, succeeded: 0, failed: 0 }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
   } catch (e) { next(e); }
 });
 app.get("/api/guilds/:guildId/change-sets", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const rows = await pool.query("SELECT id,template_key,status,plan,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 30", [req.user.id, guild.id]); res.json({ changeSets: rows.rows }); } catch (e) { next(e); } });
