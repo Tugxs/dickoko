@@ -367,8 +367,9 @@ app.get("/api/guilds/:guildId/install-url", requireUser, async (req, res, next) 
   try {
     const guild = await authorizedGuild(req.user, req.params.guildId);
     if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
+    if (!process.env.DISCORD_CLIENT_ID) return res.status(503).json({ error: "لم يتم إعداد معرف تطبيق Discord على الخادم" });
     const params = new URLSearchParams({ client_id: process.env.DISCORD_CLIENT_ID || "", scope: "bot applications.commands", permissions: REQUIRED_BOT_PERMISSIONS, guild_id: String(guild.id), disable_guild_select: "true" });
-    res.json({ url: `https://discord.com/oauth2/authorize?${params}`, guild: { id: guild.id, name: guild.name } });
+    res.json({ url: `https://discord.com/oauth2/authorize?${params.toString()}`, guild: { id: guild.id, name: guild.name }, permissions: REQUIRED_BOT_PERMISSIONS });
   } catch (e) { next(e); }
 });
 app.post("/api/guilds/:guildId/connection/verify", requireUser, async (req, res, next) => {
