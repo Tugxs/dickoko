@@ -197,6 +197,10 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: "512kb" }));
+app.use("/api", (req, res, next) => {
+  if (["POST", "PUT", "PATCH"].includes(req.method) && req.is("application/json") && (!req.body || typeof req.body !== "object" || Array.isArray(req.body))) return res.status(400).json({ error: "يجب أن تكون بيانات الطلب JSON object صالحًا" });
+  next();
+});
 app.use(session({
   store: new PgStore({ pool, createTableIfMissing: true }),
   secret: SESSION_SECRET,
@@ -315,6 +319,40 @@ function safeReturnTo(value) {
 function publicUser(row) {
   return { id: row.id, discordId: row.discord_id, username: row.username, displayName: row.display_name, avatar: row.avatar, email: row.email, plan: row.plan, status: row.status, isAdmin: isAdmin(row), createdAt: row.created_at };
 }
+const PLAN_LIMITS = {
+  trial: { servers: 1, customBots: 1, changeSetsPerMonth: 10 },
+  starter: { servers: 1, customBots: 5, changeSetsPerMonth: 50 },
+  growth: { servers: 3, customBots: 10, changeSetsPerMonth: 250 },
+  complete: { servers: 5, customBots: 5, changeSetsPerMonth: 1000 },
+};
+function entitlementsFor(user) { return PLAN_LIMITS[user?.plan] || PLAN_LIMITS.trial; }
+async function planCapacity(user, kind) {
+  const limits = entitlementsFor(user);
+  if (kind === "servers") {
+    const { rows } = await pool.query("SELECT COUNT(DISTINCT guild_id)::int AS count FROM guild_connections WHERE user_id=$1 AND install_status <> 'removed'", [user.id]);
+    return { used: rows[0].count, limit: limits.servers };
+  }
+  if (kind === "customBots") {
+    const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM custom_bots WHERE user_id=$1 AND status <> 'deleted'", [user.id]);
+    return { used: rows[0].count, limit: limits.customBots };
+  }
+  if (kind === "changeSetsPerMonth") {
+    const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM change_sets WHERE user_id=$1 AND created_at >= date_trunc('month', NOW())", [user.id]);
+    return { used: rows[0].count, limit: limits.changeSetsPerMonth };
+  }
+  return { used: 0, limit: 0 };
+}
+async function requirePlanCapacity(user, kind) {
+  const capacity = await planCapacity(user, kind);
+  if (capacity.used >= capacity.limit) {
+    const error = new Error(`وصلت إلى حد باقة ${user.plan} لهذه الميزة`);
+    error.status = 402;
+    error.code = "PLAN_LIMIT_REACHED";
+    error.capacity = capacity;
+    throw error;
+  }
+  return capacity;
+}
 async function currentUser(req) {
   if (!req.session.userId) return null;
   const { rows } = await pool.query("SELECT * FROM users WHERE id=$1", [req.session.userId]);
@@ -405,7 +443,8 @@ app.get("/auth/google/callback", async (req, res, next) => {
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
 app.get("/api/me", async (req, res, next) => { try { const user = await currentUser(req); res.json({ user: user ? publicUser(user) : null, loginUrl: "/auth/discord" }); } catch (e) { next(e); } });
-app.get("/api/account/overview", requireUser, async (req, res, next) => { try { const [subscription, guilds, connections, activity] = await Promise.all([pool.query("SELECT plan,status,current_period_end,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]), manageableGuilds(req.user), pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]), pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id])]); const byGuild = new Map(connections.rows.map((row) => [String(row.guild_id), row])); res.json({ user: publicUser(req.user), plan: subscription.rows[0] || { plan: req.user.plan, status: req.user.plan === "trial" ? "trial" : "active", current_period_end: null }, limits: { servers: { trial: 1, starter: 1, growth: 3, complete: 5 }[req.user.plan] || 1 }, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows }); } catch (e) { next(e); } });
+app.get("/api/account/overview", requireUser, async (req, res, next) => { try { const [subscription, guilds, connections, activity, customBots, changeSets] = await Promise.all([pool.query("SELECT plan,status,current_period_end,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]), manageableGuilds(req.user), pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]), pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id]), planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); const byGuild = new Map(connections.rows.map((row) => [String(row.guild_id), row])); res.json({ user: publicUser(req.user), plan: subscription.rows[0] || { plan: req.user.plan, status: req.user.plan === "trial" ? "trial" : "active", current_period_end: null }, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth: changeSets }, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows }); } catch (e) { next(e); } });
+app.get("/api/account/entitlements", requireUser, async (req, res, next) => { try { const [customBots, changeSetsPerMonth] = await Promise.all([planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); res.json({ plan: req.user.plan, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth } }); } catch (e) { next(e); } });
 app.get("/api/guilds", requireUser, async (req, res, next) => {
   try {
     const guilds = await manageableGuilds(req.user);
@@ -485,7 +524,7 @@ app.post("/api/custom-templates", requireUser, async (req, res, next) => { try {
 app.put("/api/custom-templates/:id", requireUser, async (req, res, next) => { try { const current = (await pool.query("SELECT * FROM custom_templates WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!current) return res.status(404).json({ error: "القالب غير موجود" }); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : current.definition; const name = String(req.body.name || current.name).trim().slice(0, 80); const description = String(req.body.description ?? current.description).trim().slice(0, 300); const version = Number(current.version || 1) + 1; const { rows } = await pool.query("UPDATE custom_templates SET name=$1,description=$2,definition=$3,version=$4,updated_at=NOW() WHERE id=$5 AND user_id=$6 RETURNING *", [name, description, definition, version, current.id, req.user.id]); await pool.query("INSERT INTO template_versions(template_id,version,definition) VALUES($1,$2,$3)", [current.id, version, definition]); await audit(req.user.id, "custom_template.update", "custom_template", current.id, { version }); res.json({ template: rows[0] }); } catch (e) { next(e); } });
 app.delete("/api/custom-templates/:id", requireUser, async (req, res, next) => { try { const result = await pool.query("DELETE FROM custom_templates WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]); if (!result.rowCount) return res.status(404).json({ error: "القالب غير موجود" }); await audit(req.user.id, "custom_template.delete", "custom_template", req.params.id); res.json({ ok: true }); } catch (e) { next(e); } });
 app.get("/api/custom-bots", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,slug,description,definition,status,version,created_at,updated_at FROM custom_bots WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ bots: rows }); } catch (e) { next(e); } });
-app.post("/api/custom-bots", requireUser, async (req, res, next) => { try { const name = String(req.body.name || "Bot جديد").trim().slice(0, 80); const slug = String(req.body.slug || name).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || `bot-${Date.now()}`; const description = String(req.body.description || "").trim().slice(0, 300); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : { personality: "مساعد هادئ ومفيد", commands: [], capabilities: [], approval_required: true }; const { rows } = await pool.query("INSERT INTO custom_bots(user_id,name,slug,description,definition) VALUES($1,$2,$3,$4,$5) RETURNING *", [req.user.id, name, slug, description, definition]); await audit(req.user.id, "custom_bot.create", "custom_bot", rows[0].id, { name, slug }); res.status(201).json({ bot: rows[0] }); } catch (e) { if (e.code === "23505") return res.status(409).json({ error: "اسم الـBot مستخدم مسبقًا" }); next(e); } });
+app.post("/api/custom-bots", requireUser, async (req, res, next) => { try { await requirePlanCapacity(req.user, "customBots"); const name = String(req.body.name || "Bot جديد").trim().slice(0, 80); const slug = String(req.body.slug || name).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || `bot-${Date.now()}`; const description = String(req.body.description || "").trim().slice(0, 300); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : { personality: "مساعد هادئ ومفيد", commands: [], capabilities: [], approval_required: true }; const { rows } = await pool.query("INSERT INTO custom_bots(user_id,name,slug,description,definition) VALUES($1,$2,$3,$4,$5) RETURNING *", [req.user.id, name, slug, description, definition]); await audit(req.user.id, "custom_bot.create", "custom_bot", rows[0].id, { name, slug }); res.status(201).json({ bot: rows[0] }); } catch (e) { if (e.code === "23505") return res.status(409).json({ error: "اسم الـBot مستخدم مسبقًا" }); next(e); } });
 app.put("/api/custom-bots/:id", requireUser, async (req, res, next) => { try { const current = (await pool.query("SELECT * FROM custom_bots WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!current) return res.status(404).json({ error: "البوت غير موجود" }); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : current.definition; const name = String(req.body.name || current.name).trim().slice(0, 80); const description = String(req.body.description ?? current.description).trim().slice(0, 300); const version = Number(current.version || 1) + 1; const { rows } = await pool.query("UPDATE custom_bots SET name=$1,description=$2,definition=$3,version=$4,updated_at=NOW() WHERE id=$5 AND user_id=$6 RETURNING *", [name, description, definition, version, current.id, req.user.id]); await audit(req.user.id, "custom_bot.update", "custom_bot", current.id, { version }); res.json({ bot: rows[0] }); } catch (e) { next(e); } });
 app.patch("/api/guilds/:guildId/settings/name", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const name = String(req.body.name || "").trim().slice(0, 100); if (name.length < 2) return res.status(400).json({ error: "اكتب اسمًا من حرفين على الأقل" }); const result = await discordBotFetch(`/guilds/${guild.id}`, { method: "PATCH", body: JSON.stringify({ name }) }); if (!result.ok) return res.status(result.status === 403 ? 403 : 502).json({ error: "لم يسمح Discord بتغيير الاسم. تحقق من صلاحية إدارة السيرفر." }); await pool.query("UPDATE guild_connections SET guild_name=$1,updated_at=NOW() WHERE user_id=$2 AND guild_id=$3", [name, req.user.id, guild.id]); await audit(req.user.id, "guild.rename", "guild", guild.id, { from: guild.name, to: name }); res.json({ ok: true, guild: { id: guild.id, name: result.data.name } }); } catch (e) { next(e); } });
 function draftDesign(body) {
@@ -549,6 +588,7 @@ app.post("/api/projects/:id/bind-guild", requireUser, async (req, res, next) => 
 });
 app.post("/api/change-sets", requireUser, async (req, res, next) => {
   try {
+    await requirePlanCapacity(req.user, "changeSetsPerMonth");
     const guild = await authorizedGuild(req.user, req.body.guildId);
     if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
     const templateKey = String(req.body.templateKey || "gaming");
@@ -600,6 +640,7 @@ app.post("/api/change-sets/:id/apply", requireUser, async (req, res, next) => {
   } catch (e) { await pool.query("UPDATE change_sets SET status='failed',updated_at=NOW() WHERE id=$1", [req.params.id]).catch(() => {}); next(e); }
 });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
+app.get("/api/projects/:id/export", requireUser, async (req, res, next) => { try { const project = (await pool.query("SELECT id,name,guild_id,design,deployment_status,created_at,updated_at FROM projects WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!project) return res.status(404).json({ error: "المشروع غير موجود" }); await audit(req.user.id, "project.export", "project", project.id); res.set("Content-Disposition", `attachment; filename=\"diskoko-project-${project.id}.json\"`); res.json({ exported_at: new Date().toISOString(), project }); } catch (e) { next(e); } });
 app.post("/api/projects", requireUser, async (req, res, next) => {
   try {
     const name = String(req.body.name || "عالمي الجديد").trim().slice(0, 80);
@@ -649,7 +690,7 @@ app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
-app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: "حدث خطأ غير متوقع" }); });
+app.use((error, _req, res, _next) => { console.error(error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
 
 migrate().then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
