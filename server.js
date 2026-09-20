@@ -488,20 +488,50 @@ app.get("/api/custom-bots", requireUser, async (req, res, next) => { try { const
 app.post("/api/custom-bots", requireUser, async (req, res, next) => { try { const name = String(req.body.name || "Bot جديد").trim().slice(0, 80); const slug = String(req.body.slug || name).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || `bot-${Date.now()}`; const description = String(req.body.description || "").trim().slice(0, 300); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : { personality: "مساعد هادئ ومفيد", commands: [], capabilities: [], approval_required: true }; const { rows } = await pool.query("INSERT INTO custom_bots(user_id,name,slug,description,definition) VALUES($1,$2,$3,$4,$5) RETURNING *", [req.user.id, name, slug, description, definition]); await audit(req.user.id, "custom_bot.create", "custom_bot", rows[0].id, { name, slug }); res.status(201).json({ bot: rows[0] }); } catch (e) { if (e.code === "23505") return res.status(409).json({ error: "اسم الـBot مستخدم مسبقًا" }); next(e); } });
 app.put("/api/custom-bots/:id", requireUser, async (req, res, next) => { try { const current = (await pool.query("SELECT * FROM custom_bots WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!current) return res.status(404).json({ error: "البوت غير موجود" }); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : current.definition; const name = String(req.body.name || current.name).trim().slice(0, 80); const description = String(req.body.description ?? current.description).trim().slice(0, 300); const version = Number(current.version || 1) + 1; const { rows } = await pool.query("UPDATE custom_bots SET name=$1,description=$2,definition=$3,version=$4,updated_at=NOW() WHERE id=$5 AND user_id=$6 RETURNING *", [name, description, definition, version, current.id, req.user.id]); await audit(req.user.id, "custom_bot.update", "custom_bot", current.id, { version }); res.json({ bot: rows[0] }); } catch (e) { next(e); } });
 app.patch("/api/guilds/:guildId/settings/name", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const name = String(req.body.name || "").trim().slice(0, 100); if (name.length < 2) return res.status(400).json({ error: "اكتب اسمًا من حرفين على الأقل" }); const result = await discordBotFetch(`/guilds/${guild.id}`, { method: "PATCH", body: JSON.stringify({ name }) }); if (!result.ok) return res.status(result.status === 403 ? 403 : 502).json({ error: "لم يسمح Discord بتغيير الاسم. تحقق من صلاحية إدارة السيرفر." }); await pool.query("UPDATE guild_connections SET guild_name=$1,updated_at=NOW() WHERE user_id=$2 AND guild_id=$3", [name, req.user.id, guild.id]); await audit(req.user.id, "guild.rename", "guild", guild.id, { from: guild.name, to: name }); res.json({ ok: true, guild: { id: guild.id, name: result.data.name } }); } catch (e) { next(e); } });
+function draftDesign(body) {
+  const design = body?.design;
+  if (!design || typeof design !== "object" || Array.isArray(design)) return null;
+  if (JSON.stringify(design).length > 200_000) return null;
+  return design;
+}
+app.get("/api/guilds/:guildId/draft", requireUser, async (req, res, next) => {
+  try {
+    const guild = await authorizedGuild(req.user, req.params.guildId);
+    if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
+    const { rows } = await pool.query("SELECT id,name,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 1", [req.user.id, guild.id]);
+    res.json({ draft: rows[0] || null });
+  } catch (e) { next(e); }
+});
+app.put("/api/guilds/:guildId/draft", requireUser, async (req, res, next) => {
+  try {
+    const guild = await authorizedGuild(req.user, req.params.guildId);
+    if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
+    const design = draftDesign(req.body);
+    if (!design) return res.status(400).json({ error: "بيانات المسودة غير صالحة أو أكبر من الحد المسموح" });
+    const name = String(req.body.name || design.name || guild.name || "مسودتي").trim().slice(0, 80) || "مسودتي";
+    const current = (await pool.query("SELECT id FROM projects WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 1", [req.user.id, guild.id])).rows[0];
+    const result = current
+      ? await pool.query("UPDATE projects SET name=$1,design=$2,deployment_status='draft',updated_at=NOW() WHERE id=$3 AND user_id=$4 RETURNING id,name,guild_id,design,deployment_status,created_at,updated_at", [name, design, current.id, req.user.id])
+      : await pool.query("INSERT INTO projects(user_id,name,guild_id,design,deployment_status) VALUES($1,$2,$3,$4,'draft') RETURNING id,name,guild_id,design,deployment_status,created_at,updated_at", [req.user.id, name, guild.id, design]);
+    await audit(req.user.id, "project.draft.save", "project", result.rows[0].id, { guild_id: guild.id });
+    res.json({ draft: result.rows[0] });
+  } catch (e) { next(e); }
+});
 app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
   try {
     const guild = await authorizedGuild(req.user, req.params.guildId);
     if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
-    const [connection, channels, roles, changes, events] = await Promise.all([
-      pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 AND guild_id=$2", [req.user.id, guild.id]),
+    const [connection, channels, roles, changes, events, draft] = await Promise.all([
+      pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at FROM guild_connections WHERE user_id=$1 AND guild_id=$2", [req.user.id, guild.id]),
       discordBotFetch(`/guilds/${guild.id}/channels`),
       discordBotFetch(`/guilds/${guild.id}/roles`),
-      pool.query("SELECT id,template_key,status,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 8", [req.user.id, guild.id]),
-      pool.query("SELECT event_type,quantity,created_at,metadata FROM usage_events WHERE user_id=$1 AND guild_id=$2 ORDER BY created_at DESC LIMIT 12", [req.user.id, guild.id])
+      pool.query("SELECT id,template_key,status,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 8", [req.user.id, guild.id]),
+      pool.query("SELECT event_type,quantity,metadata,created_at FROM usage_events WHERE user_id=$1 AND guild_id=$2 ORDER BY created_at DESC LIMIT 20", [req.user.id, guild.id]),
+      pool.query("SELECT id,name,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 1", [req.user.id, guild.id]),
     ]);
     const channelRows = channels.ok && Array.isArray(channels.data) ? channels.data : [];
     const roleRows = roles.ok && Array.isArray(roles.data) ? roles.data : [];
-    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: Boolean(process.env.DISCORD_BOT_TOKEN), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, changeSets: changes.rows, activity: events.rows });
+    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: Boolean(process.env.DISCORD_BOT_TOKEN), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
   } catch (e) { next(e); }
 });
 app.get("/api/guilds/:guildId/change-sets", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const rows = await pool.query("SELECT id,template_key,status,plan,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 30", [req.user.id, guild.id]); res.json({ changeSets: rows.rows }); } catch (e) { next(e); } });
