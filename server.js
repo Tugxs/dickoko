@@ -222,6 +222,22 @@ async function manageableGuilds(user) {
 async function authorizedGuild(user, guildId) {
   return (await manageableGuilds(user)).find((guild) => String(guild.id) === String(guildId)) || null;
 }
+const TEMPLATES = {
+  gaming: { name: "مجتمع الألعاب", categories: [{ name: "WELCOME", channels: ["start-here", "rules"] }, { name: "COMMUNITY", channels: ["general", "announcements", "bot-commands"] }, { name: "VOICE LOUNGE", channels: ["Lounge", "Team Room"] }], roles: ["Member", "Moderator"] },
+  support: { name: "مركز الدعم", categories: [{ name: "WELCOME", channels: ["start-here", "rules"] }, { name: "SUPPORT", channels: ["help", "tickets", "announcements"] }], roles: ["Member", "Support"] },
+  study: { name: "مساحة التركيز", categories: [{ name: "WELCOME", channels: ["start-here", "rules"] }, { name: "STUDY", channels: ["general", "resources", "study-room"] }], roles: ["Member", "Study Lead"] }
+};
+function makeTemplatePlan(templateKey) {
+  const template = TEMPLATES[templateKey] || TEMPLATES.gaming;
+  const operations = [];
+  template.categories.forEach((category, categoryIndex) => {
+    const categoryKey = `category:${categoryIndex}:${category.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    operations.push({ operation_key: categoryKey, resource_type: "category", name: category.name, channels: category.channels });
+    category.channels.forEach((name, channelIndex) => operations.push({ operation_key: `${categoryKey}:channel:${channelIndex}`, resource_type: "channel", name, parent_key: categoryKey }));
+  });
+  template.roles.forEach((name, index) => operations.push({ operation_key: `role:${index}:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, resource_type: "role", name }));
+  return { template_key: templateKey, name: template.name, operations };
+}
 function isAdmin(user) {
   const ids = (process.env.ADMIN_DISCORD_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
   const emails = (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
@@ -365,6 +381,70 @@ app.post("/api/guilds/:guildId/connection/verify", requireUser, async (req, res,
     await audit(req.user.id, "guild.verify", "guild", guild.id, { status });
     res.json({ ok: bot.ok, status, bot: bot.ok ? { id: bot.data.id, name: bot.data.name } : null });
   } catch (e) { next(e); }
+});
+app.get("/api/templates", requireUser, (_req, res) => res.json({ templates: Object.entries(TEMPLATES).map(([key, value]) => ({ key, name: value.name, categories: value.categories.length, roles: value.roles.length })) }));
+app.post("/api/projects/:id/bind-guild", requireUser, async (req, res, next) => {
+  try {
+    const guild = await authorizedGuild(req.user, req.body.guildId);
+    if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
+    const { rows } = await pool.query("UPDATE projects SET guild_id=$1,updated_at=NOW() WHERE id=$2 AND user_id=$3 RETURNING *", [guild.id, req.params.id, req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: "المشروع غير موجود" });
+    await pool.query("UPDATE guild_connections SET project_id=$1,updated_at=NOW() WHERE user_id=$2 AND guild_id=$3", [rows[0].id, req.user.id, guild.id]);
+    await audit(req.user.id, "project.bind_guild", "project", rows[0].id, { guild_id: guild.id });
+    res.json({ project: rows[0] });
+  } catch (e) { next(e); }
+});
+app.post("/api/change-sets", requireUser, async (req, res, next) => {
+  try {
+    const guild = await authorizedGuild(req.user, req.body.guildId);
+    if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
+    const templateKey = String(req.body.templateKey || "gaming");
+    const plan = makeTemplatePlan(templateKey);
+    const projectId = req.body.projectId ? Number(req.body.projectId) : null;
+    const { rows } = await pool.query("INSERT INTO change_sets(user_id,guild_id,project_id,template_key,status,plan) VALUES($1,$2,$3,$4,'draft',$5) RETURNING *", [req.user.id, guild.id, projectId, templateKey, plan]);
+    await pool.query("INSERT INTO change_operations(change_set_id,operation_key,resource_type,result) SELECT $1,(item->>'operation_key'),(item->>'resource_type'),item FROM jsonb_array_elements($2::jsonb->'operations') item", [rows[0].id, JSON.stringify(plan)]);
+    await audit(req.user.id, "change_set.create", "change_set", rows[0].id, { guild_id: guild.id, template_key: templateKey });
+    res.status(201).json({ changeSet: rows[0], plan });
+  } catch (e) { next(e); }
+});
+app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
+app.post("/api/change-sets/:id/apply", requireUser, async (req, res, next) => {
+  try {
+    const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0];
+    if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" });
+    const guild = await authorizedGuild(req.user, changeSet.guild_id);
+    if (!guild) return res.status(403).json({ error: "لم تعد تملك صلاحية إدارة هذا السيرفر" });
+    const guildCheck = await discordBotFetch(`/guilds/${encodeURIComponent(changeSet.guild_id)}`);
+    if (!guildCheck.ok) return res.status(409).json({ error: "ثبت Bot Diskoko في السيرفر أولًا ثم أعد التحقق" });
+    const [channelsResponse, rolesResponse] = await Promise.all([discordBotFetch(`/guilds/${changeSet.guild_id}/channels`), discordBotFetch(`/guilds/${changeSet.guild_id}/roles`)]);
+    if (!channelsResponse.ok || !rolesResponse.ok) return res.status(502).json({ error: "تعذر قراءة بنية السيرفر من Discord" });
+    await pool.query("UPDATE change_sets SET status='running',updated_at=NOW() WHERE id=$1", [changeSet.id]);
+    const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 AND status<>'succeeded' ORDER BY id", [changeSet.id])).rows;
+    const categories = new Map(channelsResponse.data.filter((item) => item.type === 4).map((item) => [item.name.toLowerCase(), item]));
+    const channels = channelsResponse.data.filter((item) => item.type === 0);
+    const roles = new Map(rolesResponse.data.map((item) => [item.name.toLowerCase(), item]));
+    const categoryResources = new Map();
+    for (const operation of operations) {
+      const data = operation.result || {};
+      let resource = null;
+      if (operation.resource_type === "category") resource = categories.get(String(data.name || "").toLowerCase());
+      if (operation.resource_type === "channel") { const parentId = categoryResources.get(data.parent_key); resource = channels.find((item) => item.name.toLowerCase() === String(data.name || "").toLowerCase() && (!parentId || item.parent_id === parentId)); }
+      if (operation.resource_type === "role") resource = roles.get(String(data.name || "").toLowerCase());
+      if (!resource) {
+        const parentId = categoryResources.get(data.parent_key);
+        const body = operation.resource_type === "category" ? { name: data.name, type: 4 } : operation.resource_type === "channel" ? { name: data.name, type: 0, ...(parentId ? { parent_id: parentId } : {}) } : { name: data.name, mentionable: false };
+        const created = await discordBotFetch(`/guilds/${changeSet.guild_id}/${operation.resource_type === "role" ? "roles" : "channels"}`, { method: "POST", body: JSON.stringify(body) });
+        if (!created.ok) { await pool.query("UPDATE change_operations SET status='failed',result=$1,updated_at=NOW() WHERE id=$2", [created.data, operation.id]); throw new Error(`Discord ${created.status} while creating ${operation.resource_type}`); }
+        resource = created.data;
+      }
+      if (operation.resource_type === "category") categoryResources.set(operation.operation_key, resource.id);
+      await pool.query("UPDATE change_operations SET status='succeeded',resource_id=$1,result=$2,updated_at=NOW() WHERE id=$3", [resource.id, resource, operation.id]);
+      await pool.query("INSERT INTO usage_events(user_id,guild_id,event_type,metadata) VALUES($1,$2,$3,$4)", [req.user.id, changeSet.guild_id, `discord.${operation.resource_type}.ensure`, { change_set_id: changeSet.id, resource_id: resource.id }]);
+    }
+    await pool.query("UPDATE change_sets SET status='succeeded',updated_at=NOW() WHERE id=$1", [changeSet.id]);
+    await audit(req.user.id, "change_set.apply", "change_set", changeSet.id, { guild_id: changeSet.guild_id });
+    res.json({ ok: true, status: "succeeded", changeSetId: changeSet.id });
+  } catch (e) { await pool.query("UPDATE change_sets SET status='failed',updated_at=NOW() WHERE id=$1", [req.params.id]).catch(() => {}); next(e); }
 });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
 app.post("/api/projects", requireUser, async (req, res, next) => {
