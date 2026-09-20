@@ -147,6 +147,10 @@ function isAdmin(user) {
   const emails = (process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   return !!user && (ids.includes(String(user.discord_id)) || emails.includes(String(user.email || "").toLowerCase()));
 }
+function safeReturnTo(value) {
+  const target = String(value || "");
+  return target.startsWith("/") && !target.startsWith("//") && !target.includes("\\") ? target : null;
+}
 function publicUser(row) {
   return { id: row.id, discordId: row.discord_id, username: row.username, displayName: row.display_name, avatar: row.avatar, email: row.email, plan: row.plan, status: row.status, isAdmin: isAdmin(row), createdAt: row.created_at };
 }
@@ -185,6 +189,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, service: "diskoko", b
 app.get("/auth/discord", rateLimit(12, 60_000), (req, res) => {
   const state = crypto.randomBytes(24).toString("hex");
   req.session.oauthState = state;
+  req.session.returnTo = safeReturnTo(req.query.returnTo);
   const params = new URLSearchParams({ client_id: process.env.DISCORD_CLIENT_ID || "", redirect_uri: `${BASE_URL}/auth/discord/callback`, response_type: "code", scope: "identify email guilds", state, prompt: "consent" });
   res.redirect(`https://discord.com/oauth2/authorize?${params}`);
 });
@@ -206,13 +211,15 @@ app.get("/auth/discord/callback", async (req, res, next) => {
     req.session.userId = rows[0].id;
     void sendWelcomeEmail(rows[0]).catch((error) => console.error("Welcome email failed", error));
     await audit(rows[0].id, "login", "user", rows[0].id);
-    res.redirect(isAdmin(rows[0]) ? "/admin.html" : "/account.html");
+    const returnTo = safeReturnTo(req.session.returnTo); delete req.session.returnTo;
+    res.redirect(returnTo || (isAdmin(rows[0]) ? "/admin.html" : "/account.html"));
   } catch (error) { next(error); }
 });
 app.get("/auth/google", rateLimit(12, 60_000), (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).send("تسجيل Google غير مفعّل بعد");
   const state = crypto.randomBytes(24).toString("hex");
   req.session.googleOauthState = state;
+  req.session.returnTo = safeReturnTo(req.query.returnTo);
   const params = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: `${BASE_URL}/auth/google/callback`, response_type: "code", scope: "openid email profile", state, prompt: "select_account" });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
@@ -231,7 +238,8 @@ app.get("/auth/google/callback", async (req, res, next) => {
     req.session.userId = rows[0].id;
     void sendWelcomeEmail(rows[0]).catch((error) => console.error("Welcome email failed", error));
     await audit(rows[0].id, "login.google", "user", rows[0].id);
-    res.redirect(isAdmin(rows[0]) ? "/admin.html" : "/account.html");
+    const returnTo = safeReturnTo(req.session.returnTo); delete req.session.returnTo;
+    res.redirect(returnTo || (isAdmin(rows[0]) ? "/admin.html" : "/account.html"));
   } catch (error) { next(error); }
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
@@ -286,6 +294,7 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
 app.get("/api/admin/audit", requireAdmin, async (_req, res, next) => { try { const { rows } = await pool.query("SELECT a.*,u.username actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 100"); res.json({ logs: rows }); } catch (e) { next(e); } });
 
 app.use(express.static(__dirname, { extensions: ["html"], maxAge: process.env.NODE_ENV === "production" ? "1h" : 0 }));
+app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
 app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: "حدث خطأ غير متوقع" }); });

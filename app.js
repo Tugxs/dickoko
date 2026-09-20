@@ -22,7 +22,7 @@ const homeOverlay=$('#homeOverlay');
 async function studioSession(){try{const r=await fetch('/api/me',{credentials:'include'});if(!r.ok)return null;const d=await r.json();return d.user||null}catch{return null}}
 function showGate(){const g=$('#studioGate');if(g)g.hidden=false;document.body.style.overflow='auto'}
 function hideGate(){const g=$('#studioGate');if(g)g.hidden=true}
-async function requestStudio(){const user=await studioSession();if(user){closeHome();return}showHome();showGate()}
+async function requestStudio(){const user=await studioSession();if(user){closeHome();return}window.location.href='/login?returnTo=%2F%23dashboard'}
 window.diskokoRequireStudio=requestStudio
 function closeHome(){hideGate();homeOverlay.classList.add('home-hidden');document.body.style.overflow='hidden';window.location.hash='dashboard'}
 function showHome(){homeOverlay.classList.remove('home-hidden');document.body.style.overflow='auto';window.location.hash='home';homeOverlay.scrollTop=0}
