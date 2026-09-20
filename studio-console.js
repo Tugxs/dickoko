@@ -8,15 +8,15 @@
   const guildId = new URLSearchParams(location.search).get('guild');
   let guilds = [], selectedGuild = guildId, summary = null, screen = location.hash.replace('#', '') || (guildId ? 'overview' : 'servers');
   const nav = [
-    ['overview', '⌂', 'نظرة عامة', 'الرؤية اليومية والحالة'],
-    ['servers', '◫', 'السيرفرات', 'اختيار وإدارة الاتصال'],
-    ['builder', '✦', 'البناء والتعديل', 'القنوات والرتب والقوالب'],
-    ['bots', '◈', 'البوتات', 'الكتالوج والإعدادات'],
-    ['automation', '◷', 'الأتمتة', 'الجداول والتنبيهات'],
-    ['safety', '盾', 'الأمان', 'الحماية والسياسات'],
-    ['analytics', '⌁', 'التحليلات', 'النشاط والصحة'],
-    ['activity', '≡', 'السجل', 'العمليات والتغييرات'],
-    ['settings', '⚙', 'الإعدادات', 'الصلاحيات والهوية']
+    ['overview', '⌂', 'الرئيسية', 'الحالة والخطوة التالية', 'ابدأ'],
+    ['servers', '◫', 'اختيار السيرفر', 'تبديل مساحة العمل', 'ابدأ'],
+    ['builder', '✦', 'البناء والتعديل', 'القنوات والرتب والقوالب', 'ابنِ'],
+    ['bots', '◈', 'البوتات', 'الأوامر والوحدات والإعدادات', 'شغّل'],
+    ['automation', '◷', 'الأتمتة', 'الجداول والتنبيهات', 'شغّل'],
+    ['safety', '盾', 'الأمان', 'السياسات والحماية', 'احمِ'],
+    ['analytics', '⌁', 'التحليلات', 'الصحة والاستخدام', 'افهم'],
+    ['activity', '≡', 'السجل', 'العمليات والتغييرات', 'افهم'],
+    ['settings', '⚙', 'الإعدادات', 'الصلاحيات والهوية', 'إعدادات']
   ];
   function shell() {
     document.querySelector('#studioConnectionBar')?.remove();
@@ -25,7 +25,7 @@
     const el = document.createElement('div'); el.id = 'operationsConsole'; el.className = 'operations-console';
     el.innerHTML = `<aside class="ops-sidebar"><a class="ops-logo" href="/"><span>د</span><b>ديسكوكو</b></a><div class="ops-workspace-label">مساحة التشغيل</div><div class="ops-guild-picker" id="opsGuildPicker">جارٍ تحميل السيرفرات…</div><nav id="opsNav"></nav><div class="ops-sidebar-footer"><a href="/account.html#servers">← لوحة الحساب</a><button id="opsLogout">خروج</button></div></aside><main class="ops-main"><header class="ops-header"><div><span class="ops-breadcrumb">Studio / <b id="opsSectionName">نظرة عامة</b></span><h1 id="opsTitle">مساحة تشغيل مجتمعك</h1></div><div class="ops-header-actions"><span class="ops-live"><i></i> النظام يعمل</span><a class="ops-header-link" href="https://discord.gg/ebpQrvBYZA" target="_blank" rel="noopener">مجتمع Discord ↗</a></div></header><div class="ops-content" id="opsContent"><div class="ops-loading">جارٍ تحميل مساحة التشغيل…</div></div></main>`;
     root.appendChild(el);
-    const navEl = el.querySelector('#opsNav'); nav.forEach(([id, icon, label, sub]) => { const button = document.createElement('button'); button.className = 'ops-nav-item'; button.dataset.screen = id; button.innerHTML = `<span class="ops-nav-icon">${icon}</span><span><b>${label}</b><small>${sub}</small></span>`; button.onclick = () => go(id); navEl.appendChild(button); });
+    const navEl = el.querySelector('#opsNav'); let currentGroup = ''; nav.forEach(([id, icon, label, sub, group]) => { if (group !== currentGroup) { currentGroup = group; const heading = document.createElement('div'); heading.className = 'ops-nav-group'; heading.textContent = group; navEl.appendChild(heading); } const button = document.createElement('button'); button.className = 'ops-nav-item'; button.dataset.screen = id; button.innerHTML = `<span class="ops-nav-icon">${icon}</span><span><b>${label}</b><small>${sub}</small></span>`; button.onclick = () => go(id); navEl.appendChild(button); });
     el.querySelector('#opsLogout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.href = '/'; };
   }
   function go(next) { screen = next; location.hash = next; document.querySelectorAll('.ops-nav-item').forEach((button) => button.classList.toggle('active', button.dataset.screen === next)); render(); }
