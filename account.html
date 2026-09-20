@@ -1,1 +1,32 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تسجيل الدخول — ديسكوكو</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="dashboard.css"></head><body><div id="login" class="login hidden"><div class="login-card"><div class="brand"><i>د</i><span>diskoko <small>ديسكوكو</small></span></div><span class="login-badge">منصة بناء مجتمعات ديسكورد</span><h1>مرحبًا بك في ديسكوكو</h1><p>ادخل إلى لوحة التحكم لإدارة مشاريعك وسيرفراتك واشتراكك من مكان واحد.</p><div class="auth-actions"><a class="btn auth discord" href="/auth/discord"><b>◈</b><span>المتابعة باستخدام Discord</span></a><a class="btn auth google" href="/auth/google"><b>G</b><span>المتابعة باستخدام Google</span></a></div><div class="login-foot">دخول آمن عبر الحساب الرسمي، ولن نطلب كلمة مرورك.</div><a class="back-home" href="/">العودة إلى الصفحة الرئيسية</a></div></div><div id="app" class="shell hidden"><aside class="side"><div class="brand"><i>د</i> ديسكوكو</div><nav class="nav"><a class="active" href="/account.html">نظرة عامة</a><a href="/">الاستوديو</a><a href="#projects">مشاريعي</a></nav></aside><main class="main"><header class="top"><div><h1>أهلًا، <span id="displayName"></span></h1><p style="color:var(--muted)">تحكم في عوالمك واشتراكك من هنا.</p></div><div class="user"><img id="avatar"><span id="plan"></span><button class="btn" id="logout">خروج</button></div></header><section class="cards"><article class="card metric"><span>المشاريع</span><b id="projectCount">0</b></article><article class="card metric"><span>الخطة الحالية</span><b id="planName">Trial</b></article><article class="card metric"><span>الحالة</span><b style="color:var(--green)">نشط</b></article></section><section class="panel" id="projects"><div class="panel-head"><h2>مشاريعي</h2><button class="btn primary" id="newProject">مشروع جديد</button></div><div id="projectGrid" class="project-grid"></div></section></main></div><script src="account.js"></script></body></html>
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>تسجيل الدخول — ديسكوكو</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <div id="login" class="login login-user hidden">
+    <div class="login-orbit orbit-one"></div><div class="login-orbit orbit-two"></div>
+    <main class="login-card" aria-labelledby="login-title">
+      <a class="login-brand" href="/" aria-label="العودة إلى ديسكوكو"><span class="brand-mark">د</span><span><strong>ديسكوكو</strong><small>diskoko</small></span></a>
+      <span class="login-badge">منصة بناء مجتمعات Discord</span>
+      <h1 id="login-title">مرحبًا بك في ديسكوكو</h1>
+      <p class="login-intro">ادخل إلى مساحة عملك لإدارة مشاريعك وسيرفراتك واشتراكك من مكان واحد.</p>
+      <div class="auth-actions" aria-label="خيارات تسجيل الدخول"><a class="btn auth discord" href="/auth/discord"><b>◈</b><span>المتابعة باستخدام Discord</span><i>←</i></a><a class="btn auth google" href="/auth/google"><b>G</b><span>المتابعة باستخدام Google</span><i>←</i></a></div>
+      <p class="login-security"><span>✓</span> دخول آمن عبر الحساب الرسمي، ولن نطلب كلمة مرورك.</p><a class="back-home" href="/">العودة إلى الصفحة الرئيسية <span>←</span></a>
+    </main>
+  </div>
+  <div id="app" class="shell hidden">
+    <aside class="side"><div class="brand"><i>د</i> ديسكوكو</div><nav class="nav"><a class="active" href="/account.html">نظرة عامة</a><a href="/">الاستوديو</a><a href="#projects">مشاريعي</a></nav></aside>
+    <main class="main"><header class="top"><div><h1>أهلًا، <span id="displayName"></span></h1><p style="color:var(--muted)">تحكم في عوالمك واشتراكك من هنا.</p></div><div class="user"><img id="avatar"><span id="plan"></span><button class="btn" id="logout">خروج</button></div></header>
+      <section class="cards"><article class="card metric"><span>المشاريع</span><b id="projectCount">0</b></article><article class="card metric"><span>الخطة الحالية</span><b id="planName">Trial</b></article><article class="card metric"><span>سعة السيرفرات</span><b id="serverCapacity">0 / 1</b></article><article class="card metric"><span>استخدام المساحة</span><b id="usage">0%</b></article></section>
+      <section class="panel" id="projects"><div class="panel-head"><h2>مشاريعي</h2><button class="btn primary" id="newProject">مشروع جديد</button></div><div id="projectGrid" class="project-grid"></div></section>
+    </main>
+  </div>
+  <script src="account.js"></script>
+</body>
+</html>
