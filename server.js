@@ -383,6 +383,31 @@ app.post("/api/guilds/:guildId/connection/verify", requireUser, async (req, res,
     res.json({ ok: bot.ok, status, bot: bot.ok ? { id: bot.data.id, name: bot.data.name } : null });
   } catch (e) { next(e); }
 });
+const BOT_CATALOG = [
+  { key: "assistant", name: "Diskoko Assistant", group: "community", description: "الترحيب والمساعدة وصياغة الإعلانات", status: "available", permissions: "قراءة وإرسال الرسائل" },
+  { key: "guardian", name: "Guardian", group: "security", description: "مقترحات الإشراف ومكافحة السبام", status: "available", permissions: "إدارة الرسائل فقط" },
+  { key: "events", name: "Event Host", group: "automation", description: "الفعاليات والتذكيرات والتسجيل", status: "available", permissions: "إرسال الرسائل وإدارة الفعاليات" },
+  { key: "insights", name: "Insight", group: "analytics", description: "تقارير النشاط والصحة", status: "planned", permissions: "قراءة الإحصاءات" },
+  { key: "music", name: "Melody", group: "entertainment", description: "الصوت وقوائم التشغيل", status: "planned", permissions: "الاتصال بالقنوات الصوتية" }
+];
+app.get("/api/bots/catalog", requireUser, (_req, res) => res.json({ bots: BOT_CATALOG }));
+app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
+  try {
+    const guild = await authorizedGuild(req.user, req.params.guildId);
+    if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" });
+    const [connection, channels, roles, changes, events] = await Promise.all([
+      pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 AND guild_id=$2", [req.user.id, guild.id]),
+      discordBotFetch(`/guilds/${guild.id}/channels`),
+      discordBotFetch(`/guilds/${guild.id}/roles`),
+      pool.query("SELECT id,template_key,status,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 8", [req.user.id, guild.id]),
+      pool.query("SELECT event_type,quantity,created_at,metadata FROM usage_events WHERE user_id=$1 AND guild_id=$2 ORDER BY created_at DESC LIMIT 12", [req.user.id, guild.id])
+    ]);
+    const channelRows = channels.ok && Array.isArray(channels.data) ? channels.data : [];
+    const roleRows = roles.ok && Array.isArray(roles.data) ? roles.data : [];
+    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: Boolean(process.env.DISCORD_BOT_TOKEN), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, changeSets: changes.rows, activity: events.rows });
+  } catch (e) { next(e); }
+});
+app.get("/api/guilds/:guildId/change-sets", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const rows = await pool.query("SELECT id,template_key,status,plan,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 30", [req.user.id, guild.id]); res.json({ changeSets: rows.rows }); } catch (e) { next(e); } });
 app.get("/api/templates", requireUser, (_req, res) => res.json({ templates: Object.entries(TEMPLATES).map(([key, value]) => ({ key, name: value.name, categories: value.categories.length, roles: value.roles.length })) }));
 app.post("/api/projects/:id/bind-guild", requireUser, async (req, res, next) => {
   try {
