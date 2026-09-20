@@ -755,6 +755,10 @@ app.use((req, res, next) => {
   if (/^\/(?:server\.js|discord-bot\.js|package(?:-lock)?\.json|\.env(?:\..*)?|node_modules(?:\/|$)|docs(?:\/|$))/.test(req.path)) return res.status(404).end();
   next();
 });
+app.use((req, res, next) => {
+  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  next();
+});
 app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" }));
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
