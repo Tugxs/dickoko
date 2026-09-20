@@ -14,9 +14,25 @@ services:
       - key: ENCRYPTION_KEY
         generateValue: true
       - key: BASE_URL
-        value: https://diskoko.onrender.com
+        value: https://diskoko.com
       - key: FRONTEND_URL
-        value: https://diskoko.onrender.com
+        value: https://diskoko.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
       - key: DISCORD_CLIENT_ID
         sync: false
       - key: DISCORD_CLIENT_SECRET
