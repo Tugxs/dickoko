@@ -247,6 +247,7 @@ function sameOrigin(req) {
 app.get("/api/csrf-token", (req, res) => res.json({ token: csrfToken(req) }));
 app.use("/api", (req, res, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  if (req.path === "/webhooks/billing") return next();
   if (!sameOrigin(req)) return res.status(403).json({ error: "مصدر الطلب غير مسموح" });
   const token = req.get("x-csrf-token");
   if (!token || token !== csrfToken(req)) return res.status(403).json({ error: "رمز حماية الطلب غير صالح أو مفقود" });
