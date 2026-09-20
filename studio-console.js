@@ -1,6 +1,8 @@
 (() => {
   const esc = (value) => { const el = document.createElement('div'); el.textContent = value == null ? '' : String(value); return el.innerHTML; };
-  const api = async (url, options = {}) => { const response = await fetch(url, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...options }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || 'تعذر إكمال الطلب'); return body; };
+  let csrfTokenPromise = null;
+  const csrf = async () => { if (!csrfTokenPromise) csrfTokenPromise = fetch('/api/csrf-token', { credentials: 'include' }).then((response) => response.json()).then((body) => body.token); return csrfTokenPromise; };
+  const api = async (url, options = {}) => { const method = String(options.method || 'GET').toUpperCase(); const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }; if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) headers['X-CSRF-Token'] = await csrf(); const response = await fetch(url, { ...options, method, credentials: 'include', headers }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || 'تعذر إكمال الطلب'); return body; };
   const root = document.body;
   if (!location.pathname.startsWith('/studio')) return;
   const guildId = new URLSearchParams(location.search).get('guild');

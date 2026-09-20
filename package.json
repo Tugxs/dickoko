@@ -15,7 +15,7 @@
     "discord.js": "^14.22.1",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
-    "nodemailer": "^7.0.6",
+    "nodemailer": "^10.0.10",
     "pg": "^8.16.3"
   }
 }
