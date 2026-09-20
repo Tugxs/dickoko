@@ -122,11 +122,47 @@ async function migrate() {
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS custom_templates (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      definition JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'draft',
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS custom_bots (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      definition JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'draft',
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, slug)
+    );
+    CREATE TABLE IF NOT EXISTS template_versions (
+      id BIGSERIAL PRIMARY KEY,
+      template_id BIGINT NOT NULL REFERENCES custom_templates(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      definition JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(template_id, version)
+    );
     CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_guild_connections_user ON guild_connections(user_id);
     CREATE INDEX IF NOT EXISTS idx_change_sets_user ON change_sets(user_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_usage_events_user ON usage_events(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_custom_templates_user ON custom_templates(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_custom_bots_user ON custom_bots(user_id, updated_at DESC);
   `);
   await pool.query(`
     ALTER TABLE users ALTER COLUMN discord_id DROP NOT NULL;
@@ -391,6 +427,14 @@ const BOT_CATALOG = [
   { key: "music", name: "Melody", group: "entertainment", description: "الصوت وقوائم التشغيل", status: "planned", permissions: "الاتصال بالقنوات الصوتية" }
 ];
 app.get("/api/bots/catalog", requireUser, (_req, res) => res.json({ bots: BOT_CATALOG }));
+app.get("/api/custom-templates", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,description,definition,status,version,created_at,updated_at FROM custom_templates WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ templates: rows }); } catch (e) { next(e); } });
+app.post("/api/custom-templates", requireUser, async (req, res, next) => { try { const name = String(req.body.name || "قالب جديد").trim().slice(0, 80); const description = String(req.body.description || "").trim().slice(0, 300); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : { categories: [], channels: [], roles: [] }; const { rows } = await pool.query("INSERT INTO custom_templates(user_id,name,description,definition) VALUES($1,$2,$3,$4) RETURNING *", [req.user.id, name, description, definition]); await pool.query("INSERT INTO template_versions(template_id,version,definition) VALUES($1,1,$2)", [rows[0].id, definition]); await audit(req.user.id, "custom_template.create", "custom_template", rows[0].id, { name }); res.status(201).json({ template: rows[0] }); } catch (e) { next(e); } });
+app.put("/api/custom-templates/:id", requireUser, async (req, res, next) => { try { const current = (await pool.query("SELECT * FROM custom_templates WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!current) return res.status(404).json({ error: "القالب غير موجود" }); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : current.definition; const name = String(req.body.name || current.name).trim().slice(0, 80); const description = String(req.body.description ?? current.description).trim().slice(0, 300); const version = Number(current.version || 1) + 1; const { rows } = await pool.query("UPDATE custom_templates SET name=$1,description=$2,definition=$3,version=$4,updated_at=NOW() WHERE id=$5 AND user_id=$6 RETURNING *", [name, description, definition, version, current.id, req.user.id]); await pool.query("INSERT INTO template_versions(template_id,version,definition) VALUES($1,$2,$3)", [current.id, version, definition]); await audit(req.user.id, "custom_template.update", "custom_template", current.id, { version }); res.json({ template: rows[0] }); } catch (e) { next(e); } });
+app.delete("/api/custom-templates/:id", requireUser, async (req, res, next) => { try { const result = await pool.query("DELETE FROM custom_templates WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]); if (!result.rowCount) return res.status(404).json({ error: "القالب غير موجود" }); await audit(req.user.id, "custom_template.delete", "custom_template", req.params.id); res.json({ ok: true }); } catch (e) { next(e); } });
+app.get("/api/custom-bots", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,slug,description,definition,status,version,created_at,updated_at FROM custom_bots WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ bots: rows }); } catch (e) { next(e); } });
+app.post("/api/custom-bots", requireUser, async (req, res, next) => { try { const name = String(req.body.name || "Bot جديد").trim().slice(0, 80); const slug = String(req.body.slug || name).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || `bot-${Date.now()}`; const description = String(req.body.description || "").trim().slice(0, 300); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : { personality: "مساعد هادئ ومفيد", commands: [], capabilities: [], approval_required: true }; const { rows } = await pool.query("INSERT INTO custom_bots(user_id,name,slug,description,definition) VALUES($1,$2,$3,$4,$5) RETURNING *", [req.user.id, name, slug, description, definition]); await audit(req.user.id, "custom_bot.create", "custom_bot", rows[0].id, { name, slug }); res.status(201).json({ bot: rows[0] }); } catch (e) { if (e.code === "23505") return res.status(409).json({ error: "اسم الـBot مستخدم مسبقًا" }); next(e); } });
+app.put("/api/custom-bots/:id", requireUser, async (req, res, next) => { try { const current = (await pool.query("SELECT * FROM custom_bots WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!current) return res.status(404).json({ error: "البوت غير موجود" }); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : current.definition; const name = String(req.body.name || current.name).trim().slice(0, 80); const description = String(req.body.description ?? current.description).trim().slice(0, 300); const version = Number(current.version || 1) + 1; const { rows } = await pool.query("UPDATE custom_bots SET name=$1,description=$2,definition=$3,version=$4,updated_at=NOW() WHERE id=$5 AND user_id=$6 RETURNING *", [name, description, definition, version, current.id, req.user.id]); await audit(req.user.id, "custom_bot.update", "custom_bot", current.id, { version }); res.json({ bot: rows[0] }); } catch (e) { next(e); } });
+app.patch("/api/guilds/:guildId/settings/name", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const name = String(req.body.name || "").trim().slice(0, 100); if (name.length < 2) return res.status(400).json({ error: "اكتب اسمًا من حرفين على الأقل" }); const result = await discordBotFetch(`/guilds/${guild.id}`, { method: "PATCH", body: JSON.stringify({ name }) }); if (!result.ok) return res.status(result.status === 403 ? 403 : 502).json({ error: "لم يسمح Discord بتغيير الاسم. تحقق من صلاحية إدارة السيرفر." }); await pool.query("UPDATE guild_connections SET guild_name=$1,updated_at=NOW() WHERE user_id=$2 AND guild_id=$3", [name, req.user.id, guild.id]); await audit(req.user.id, "guild.rename", "guild", guild.id, { from: guild.name, to: name }); res.json({ ok: true, guild: { id: guild.id, name: result.data.name } }); } catch (e) { next(e); } });
 app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
   try {
     const guild = await authorizedGuild(req.user, req.params.guildId);
