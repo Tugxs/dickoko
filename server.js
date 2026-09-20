@@ -296,6 +296,7 @@ app.get("/api/admin/audit", requireAdmin, async (_req, res, next) => { try { con
 app.use(express.static(__dirname, { extensions: ["html"], maxAge: process.env.NODE_ENV === "production" ? "1h" : 0 }));
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
+app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
 app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: "حدث خطأ غير متوقع" }); });
 
