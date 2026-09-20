@@ -20,14 +20,14 @@ renderWorld();renderPanel();
 /* diskoko landing interactions and Diskoko Runner */
 const homeOverlay=$('#homeOverlay');
 async function studioSession(){try{const r=await fetch('/api/me',{credentials:'include'});if(!r.ok)return null;const d=await r.json();return d.user||null}catch{return null}}
-function requestStudio(){window.location.href='/login?returnTo=%2F%23dashboard'}
+async function requestStudio(){const user=await studioSession();if(user){closeHome();return}window.location.href='/login?returnTo=%2F%23dashboard'}
 window.diskokoRequireStudio=requestStudio
 function closeHome(){homeOverlay.classList.add('home-hidden');document.body.style.overflow='hidden';window.location.hash='dashboard'}
 function showHome(){homeOverlay.classList.remove('home-hidden');document.body.style.overflow='auto';window.location.hash='home';homeOverlay.scrollTop=0}
 $('#openDashboard')?.addEventListener('click',requestStudio);$('#heroStart')?.addEventListener('click',requestStudio);$('#homeBtn')?.addEventListener('click',showHome);$('#homeLink')?.addEventListener('click',e=>{e.preventDefault();showHome()});$('#heroLearn')?.addEventListener('click',()=>document.querySelector('#plans')?.scrollIntoView({behavior:'smooth'}));
 if(window.location.hash==='#dashboard' || window.location.hash==='#newserver'){showHome();studioSession().then(user=>{if(user)closeHome();else requestStudio()});}
-$$('.plan-button').forEach(b=>b.addEventListener('click',()=>{const plan=b.dataset.plan;state.subscription=plan;save();if(plan==='Studio'){toast('تم تسجيل اهتمامك بخطة Studio');closeHome()}else{toast(`تم اختيار خطة ${plan}`);closeHome()}}));
 const DISCORD_SUPPORT_URL='https://discord.gg/4STrh8cRM';
+$$('.plan-button').forEach(b=>b.addEventListener('click',()=>{window.location.href=DISCORD_SUPPORT_URL}));
 
 const policyText={terms:['شروط الاستخدام','استخدم diskoko لإدارة مجتمعات قانونية ومحترمة. يمنع استخدام الأتمتة للتحايل على Discord أو إزعاج المستخدمين أو جمع بياناتهم دون إذن. يمكن إيقاف الحسابات التي تخالف هذه القواعد بعد مراجعة مناسبة.'],reports:['نظام البلاغات','يمكن لمالك المجتمع إرسال بلاغ عن إساءة أو حساب مشبوه من لوحة التحكم. نسجل البلاغ، نصنفه، ونوفر حالة واضحة: مستلم، قيد المراجعة، أو مغلق. لا ينفذ النظام عقوبة حساسة بلا سياسة ومراجعة بشرية.'],limits:['حدود الاستخدام','تتغير الحدود حسب الخطة ونوع العملية. نطبق حصصًا على تصميمات AI والرسائل والتحليلات والعمليات المكلفة، مع تنبيه قبل الوصول إلى الحد ومنع الاستهلاك المفاجئ بدل رسوم غير متوقعة.'],safety:['السلامة ومكافحة الإساءة','نراقب مؤشرات مثل إنشاء سيرفرات متكرر، دعوات جماعية، رسائل متشابهة، تغييرات صلاحيات مفاجئة، ومحاولات تجاوز الحدود. المراقبة تعتمد على البيانات التشغيلية الضرورية فقط، ولا تعني قراءة خاصة غير لازمة.']};
 $$('[data-policy]').forEach(b=>b.addEventListener('click',()=>{const [title,text]=policyText[b.dataset.policy];$('#modalTitle').textContent=title;$('#modalText').textContent=text;const isReport=b.dataset.policy==='reports';if(isReport){window.location.href='reports.html';return}$('#modalAction').textContent='إغلاق';$('#modalAction').onclick=()=>$('#modal').hidden=true;$('#modal').hidden=false}));
