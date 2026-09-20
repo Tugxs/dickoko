@@ -16,10 +16,18 @@ const BASE_URL = process.env.BASE_URL?.replace(/\/$/, "") || `http://localhost:$
 const FRONTEND_URL = process.env.FRONTEND_URL?.replace(/\/$/, "") || BASE_URL;
 const DISCORD_API = "https://discord.com/api/v10";
 const REQUIRED_BOT_PERMISSIONS = String(1024n | 2048n | 16n | 268435456n | 2147483648n | 65536n);
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-const required = ["DATABASE_URL", "SESSION_SECRET", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET"];
+const required = ["DATABASE_URL", "SESSION_SECRET", "ENCRYPTION_KEY", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "DISCORD_BOT_TOKEN"];
 const missing = required.filter((key) => !process.env[key]);
-if (missing.length) console.warn(`Missing environment variables: ${missing.join(", ")}`);
+if (missing.length) {
+  const message = `Missing environment variables: ${missing.join(", ")}`;
+  if (IS_PRODUCTION) throw new Error(message);
+  console.warn(message);
+}
+
+const SESSION_SECRET = process.env.SESSION_SECRET || "development-only-change-me";
+const allowedOrigins = new Set([BASE_URL, FRONTEND_URL].filter(Boolean));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -177,6 +185,7 @@ async function migrate() {
 
 const PgStore = connectPgSimple(session);
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
 app.use((req, res, next) => {
   res.set({
     "X-Content-Type-Options": "nosniff",
@@ -190,12 +199,31 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "512kb" }));
 app.use(session({
   store: new PgStore({ pool, createTableIfMissing: true }),
-  secret: process.env.SESSION_SECRET || "development-only-change-me",
+  secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   name: "diskoko.sid",
   cookie: { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 1000 * 60 * 60 * 24 * 14 },
 }));
+
+function csrfToken(req) {
+  if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(32).toString("hex");
+  return req.session.csrfToken;
+}
+
+function sameOrigin(req) {
+  const origin = req.get("origin");
+  return !origin || allowedOrigins.has(origin);
+}
+
+app.get("/api/csrf-token", (req, res) => res.json({ token: csrfToken(req) }));
+app.use("/api", (req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  if (!sameOrigin(req)) return res.status(403).json({ error: "مصدر الطلب غير مسموح" });
+  const token = req.get("x-csrf-token");
+  if (!token || token !== csrfToken(req)) return res.status(403).json({ error: "رمز حماية الطلب غير صالح أو مفقود" });
+  next();
+});
 
 const attempts = new Map();
 function rateLimit(max = 80, windowMs = 60_000) {
@@ -212,7 +240,8 @@ function rateLimit(max = 80, windowMs = 60_000) {
 app.use("/api", rateLimit());
 
 function encryptionKey() {
-  const raw = process.env.ENCRYPTION_KEY || process.env.SESSION_SECRET || "";
+  const raw = process.env.ENCRYPTION_KEY;
+  if (!raw) throw new Error("ENCRYPTION_KEY is required for token encryption");
   return crypto.createHash("sha256").update(raw).digest();
 }
 function encrypt(value) {
@@ -581,7 +610,11 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
 });
 app.get("/api/admin/audit", requireAdmin, async (_req, res, next) => { try { const { rows } = await pool.query("SELECT a.*,u.username actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 100"); res.json({ logs: rows }); } catch (e) { next(e); } });
 
-app.use(express.static(__dirname, { extensions: ["html"], maxAge: process.env.NODE_ENV === "production" ? "1h" : 0 }));
+app.use((req, res, next) => {
+  if (/^\/(?:server\.js|discord-bot\.js|package(?:-lock)?\.json|\.env(?:\..*)?|node_modules(?:\/|$)|docs(?:\/|$))/.test(req.path)) return res.status(404).end();
+  next();
+});
+app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" }));
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
