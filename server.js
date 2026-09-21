@@ -804,7 +804,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use((req, res, next) => {
-  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/admin", "/admin.html", "/admin.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/admin", "/admin.html", "/admin.js", "/admin-dashboard.v6.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
   next();
 });
 app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" }));
