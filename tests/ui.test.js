@@ -66,10 +66,10 @@ test('projects page exposes create, bind, rename, duplicate and archive actions 
   dom.window.close();
 });
 test('admin dashboard renders all current plan totals without a missing element crash', async () => {
-  const dom = new JSDOM(fs.readFileSync(new URL('../admin.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin.html', runScripts: 'outside-only', pretendToBeVisual: true });
+  const dom = new JSDOM(fs.readFileSync(new URL('../admin-console.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin.html', runScripts: 'outside-only', pretendToBeVisual: true });
   dom.window.alert = () => assert.fail('admin dashboard raised an alert');
   dom.window.fetch = async url => ({ ok: true, json: async () => url === '/api/me' ? { user: { isAdmin: true, username: 'owner', displayName: 'Owner' } } : url === '/api/admin/stats' ? { stats: { users: 4, active: 4, free: 1, starter: 1, growth: 1, business: 1, projects: 2 } } : url === '/api/admin/users' ? { users: [] } : { token: 'test' } });
-  dom.window.eval(fs.readFileSync(new URL('../admin.js', import.meta.url), 'utf8')); await settle();
+  dom.window.eval(fs.readFileSync(new URL('../admin-console.20260921.js', import.meta.url), 'utf8')); await settle();
   assert.equal(dom.window.document.querySelector('#countFree').textContent, '1');
   assert.equal(dom.window.document.querySelector('#countBusiness').textContent, '1');
   assert.equal(dom.window.document.querySelector('#paid').textContent, '3');

@@ -507,7 +507,7 @@ app.get("/auth/discord/callback", async (req, res, next) => {
     void sendWelcomeEmail(rows[0]).catch((error) => console.error("Welcome email failed", error));
     await audit(rows[0].id, "login", "user", rows[0].id);
     const returnTo = safeReturnTo(req.session.returnTo); delete req.session.returnTo;
-    res.redirect(returnTo || (isAdmin(rows[0]) ? "/admin.html" : "/account.html"));
+    res.redirect(returnTo || (isAdmin(rows[0]) ? "/admin" : "/account.html"));
   } catch (error) { next(error); }
 });
 app.get("/auth/google", rateLimit(12, 60_000), (req, res) => {
@@ -534,7 +534,7 @@ app.get("/auth/google/callback", async (req, res, next) => {
     void sendWelcomeEmail(rows[0]).catch((error) => console.error("Welcome email failed", error));
     await audit(rows[0].id, "login.google", "user", rows[0].id);
     const returnTo = safeReturnTo(req.session.returnTo); delete req.session.returnTo;
-    res.redirect(returnTo || (isAdmin(rows[0]) ? "/admin.html" : "/account.html"));
+    res.redirect(returnTo || (isAdmin(rows[0]) ? "/admin" : "/account.html"));
   } catch (error) { next(error); }
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
@@ -804,14 +804,16 @@ app.use((req, res, next) => {
   next();
 });
 app.use((req, res, next) => {
-  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/admin", "/admin.html", "/admin.js", "/admin-dashboard.v6.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  if (["/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/admin", "/admin-login", "/admin.html", "/admin-console.20260921.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
   next();
 });
+app.get("/admin.html", (_req, res) => res.redirect(301, "/admin"));
+app.get("/admin-login", async (req, res, next) => { try { const user = await currentUser(req); if (user && isAdmin(user)) return res.redirect("/admin"); res.sendFile(path.join(__dirname, "admin-login.html")); } catch (error) { next(error); } });
+app.get("/admin", async (req, res, next) => { try { const user = await currentUser(req); if (!user) return res.redirect("/admin-login"); if (!isAdmin(user)) return res.redirect("/account.html"); res.sendFile(path.join(__dirname, "admin-console.html")); } catch (error) { next(error); } });
 app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" }));
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
-app.get("/admin", (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
 app.use((error, _req, res, _next) => { console.error(error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
 
 migrate().then(() => migrateWorkspace(pool)).then(() => {
