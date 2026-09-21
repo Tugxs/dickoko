@@ -8,7 +8,8 @@ import pg from "pg";
 import nodemailer from "nodemailer";
 import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
 import { mountWorkspace, migrateWorkspace, startScheduleRunner } from "./lib/workspace-api.js";
-import { manageable, problem, supportedCommands, connectionState } from "./lib/workspace-domain.js";
+import { manageable, problem, connectionState } from "./lib/workspace-domain.js";
+import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from "./lib/bot-catalog.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 
 const { Pool } = pg;
@@ -251,6 +252,8 @@ const PgStore = connectPgSimple(session);
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  res.set("X-Request-Id", req.requestId);
   res.set({
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -495,7 +498,15 @@ async function sendWelcomeEmail(user) {
   await pool.query("UPDATE users SET welcome_sent_at=NOW() WHERE id=$1", [user.id]);
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, service: "diskoko", bot: getDiscordBotStatus(), time: new Date().toISOString() }));
+app.get("/api/health", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ ok: true, service: "diskoko", database: "ready", bot: getDiscordBotStatus(), time: new Date().toISOString() });
+  } catch (error) {
+    console.error("Health check failed", error);
+    res.status(503).json({ ok: false, service: "diskoko", database: "unavailable", bot: getDiscordBotStatus(), time: new Date().toISOString() });
+  }
+});
 app.get("/auth/discord", rateLimit(12, 60_000), (req, res) => {
   const state = crypto.randomBytes(24).toString("hex");
   req.session.oauthState = state;
@@ -665,38 +676,16 @@ app.post("/api/guilds/:guildId/connection/verify", requireUser, async (req, res,
 });
 const BOT_CATALOG = [
   { key: "assistant", name: "Diskoko Assistant", group: "community", description: "الترحيب والمساعدة وصياغة الإعلانات", status: "available", permissions: "قراءة وإرسال الرسائل" },
-  { key: "guardian", name: "Guardian", group: "security", description: "مقترحات الإشراف ومكافحة السبام", status: "available", permissions: "إدارة الرسائل فقط" },
-  { key: "events", name: "Event Host", group: "automation", description: "الفعاليات والتذكيرات والتسجيل", status: "available", permissions: "إرسال الرسائل وإدارة الفعاليات" },
+  { key: "guardian", name: "Guardian", group: "security", description: "مقترحات الإشراف ومكافحة السبام", status: "planned", permissions: "غير مفعّل" },
+  { key: "events", name: "Event Host", group: "automation", description: "الفعاليات والتذكيرات والتسجيل", status: "planned", permissions: "غير مفعّل" },
   { key: "insights", name: "Insight", group: "analytics", description: "تقارير النشاط والصحة", status: "planned", permissions: "قراءة الإحصاءات" },
   { key: "music", name: "Melody", group: "entertainment", description: "الصوت وقوائم التشغيل", status: "planned", permissions: "الاتصال بالقنوات الصوتية" }
 ];
-const COMMAND_CATALOG = [
-  { key: "help", name: "/help", group: "أساسي", description: "عرض أوامر البوت ومركز المساعدة", permission: "الجميع", example: "أهلًا! هذه قائمة الأوامر المتاحة لك." },
-  { key: "about", name: "/about", group: "أساسي", description: "عرض هوية البوت وإصداره", permission: "الجميع", example: "أنا مساعد مجتمعك. أستطيع الترحيب والمساعدة." },
-  { key: "ping", name: "/ping", group: "أساسي", description: "فحص سرعة الاستجابة", permission: "الجميع", example: "Pong — الاستجابة مستقرة." },
-  { key: "welcome", name: "/welcome", group: "الترحيب", description: "إرسال رسالة ترحيب أو معاينتها", permission: "المشرفون", example: "مرحبًا بك في مجتمعنا. ابدأ من قناة #start-here." },
-  { key: "rules", name: "/rules", group: "الترحيب", description: "عرض قواعد المجتمع", permission: "الجميع", example: "القواعد: الاحترام، لا سبام، واحترام خصوصية الأعضاء." },
-  { key: "roles", name: "/roles", group: "الترحيب", description: "اختيار الرتب الذاتية المسموحة", permission: "الجميع", example: "اختر اهتماماتك من القائمة التالية." },
-  { key: "report", name: "/report", group: "الأمان", description: "فتح بلاغ خاص للمشرفين", permission: "الجميع", example: "تم فتح البلاغ بشكل خاص وسيراجعه الفريق." },
-  { key: "warn", name: "/warn", group: "الأمان", description: "تسجيل تنبيه مع سبب ومراجعة", permission: "المشرفون", example: "تم تسجيل التنبيه في سجل المراجعة." },
-  { key: "slowmode", name: "/slowmode", group: "الأمان", description: "اقتراح أو تعديل بطء القناة", permission: "المشرفون", example: "تم ضبط وضع التهدئة بعد موافقة المشرف." },
-  { key: "modlog", name: "/modlog", group: "الأمان", description: "عرض سجل الإشراف المسموح", permission: "المشرفون", example: "آخر عمليات الإشراف: 3 عمليات قابلة للمراجعة." },
-  { key: "event", name: "/event", group: "الفعاليات", description: "إنشاء مسودة فعالية", permission: "المشرفون", example: "جهزت مسودة فعالية. راجعها قبل النشر." },
-  { key: "remind", name: "/remind", group: "الفعاليات", description: "إعداد تذكير في قناة محددة", permission: "المشرفون", example: "تم حفظ التذكير بانتظار المراجعة." },
-  { key: "poll", name: "/poll", group: "الفعاليات", description: "إنشاء استطلاع بسيط", permission: "المشرفون", example: "تم إعداد استطلاع جديد للنشر." },
-  { key: "schedule", name: "/schedule", group: "الأتمتة", description: "جدولة رسالة أو مهمة", permission: "المشرفون", example: "تم إنشاء الجدول مع خيار الإيقاف." },
-  { key: "announce", name: "/announce", group: "الأتمتة", description: "صياغة إعلان ومراجعته", permission: "المشرفون", example: "هذه مسودة الإعلان. هل تريد اعتمادها؟" },
-  { key: "digest", name: "/digest", group: "الأتمتة", description: "طلب ملخص نشاط المجتمع", permission: "المشرفون", example: "سأجهز ملخصًا يعتمد على البيانات المتاحة." },
-  { key: "stats", name: "/stats", group: "التحليلات", description: "عرض مؤشرات المجتمع المسموحة", permission: "المشرفون", example: "الصحة جيدة. راجع لوحة التحليلات للتفاصيل." },
-  { key: "channels", name: "/channels", group: "الإدارة", description: "عرض خريطة القنوات الحالية", permission: "المشرفون", example: "لديك 4 تصنيفات و18 قناة في آخر قراءة." },
-  { key: "roles-admin", name: "/roles-admin", group: "الإدارة", description: "عرض خريطة الرتب والصلاحيات", permission: "المشرفون", example: "هذه الرتب مرتبة حسب مستوى الوصول." },
-  { key: "backup", name: "/backup", group: "الإدارة", description: "إنشاء مسودة نسخة من تصميم المجتمع", permission: "المالك", example: "تم إعداد نسخة تصميم للمراجعة." }
-];
-const DEFAULT_BOT_SETTINGS = { enabled: true, command_keys: ["help", "ping", "about"], log_channel_id: null, locale: "ar", welcome_enabled: false };
+const DEFAULT_BOT_SETTINGS = { enabled: true, command_keys: [...DEFAULT_BOT_COMMAND_KEYS], log_channel_id: null, locale: "ar", welcome_enabled: false };
 app.get("/api/guilds/:guildId/bot-settings", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const row = (await pool.query("SELECT guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at FROM bot_guild_settings WHERE guild_id=$1", [guild.id])).rows[0]; res.json({ settings: row || { guild_id: guild.id, ...DEFAULT_BOT_SETTINGS } }); } catch (e) { next(e); } });
-app.put("/api/guilds/:guildId/bot-settings", requireUser, requireWriteAccess, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const commandKeys = Array.isArray(req.body.command_keys) ? [...new Set(req.body.command_keys.map((key) => String(key)).filter((key) => supportedCommands.includes(key)))].slice(0, 50) : DEFAULT_BOT_SETTINGS.command_keys; const locale = ["ar", "en"].includes(req.body.locale) ? req.body.locale : "ar"; const enabled = req.body.enabled !== false; const welcomeEnabled = req.body.welcome_enabled === true; const logChannelId = req.body.log_channel_id ? String(req.body.log_channel_id).slice(0, 30) : null; if (logChannelId) { const channel = await discordBotFetch(`/channels/${encodeURIComponent(logChannelId)}`); if (!channel.ok || channel.data.guild_id !== guild.id || ![0,5].includes(channel.data.type)) return res.status(400).json({ error: "اختر قناة نصية من هذا السيرفر لسجل البوت" }); } const { rows } = await pool.query("INSERT INTO bot_guild_settings(guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at) VALUES($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT(guild_id) DO UPDATE SET enabled=EXCLUDED.enabled,command_keys=EXCLUDED.command_keys,log_channel_id=EXCLUDED.log_channel_id,locale=EXCLUDED.locale,welcome_enabled=EXCLUDED.welcome_enabled,updated_at=NOW() RETURNING guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at", [guild.id, enabled, JSON.stringify(commandKeys), logChannelId, locale, welcomeEnabled]); await audit(req.user.id, "bot.settings.update", "guild", guild.id, { command_keys: commandKeys, enabled, log_channel_id: logChannelId, locale, welcome_enabled: welcomeEnabled }); res.json({ settings: rows[0] }); } catch (e) { next(e); } });
+app.put("/api/guilds/:guildId/bot-settings", requireUser, requireWriteAccess, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const commandKeys = Array.isArray(req.body.command_keys) ? validBotCommandKeys(req.body.command_keys) : DEFAULT_BOT_SETTINGS.command_keys; const locale = ["ar", "en"].includes(req.body.locale) ? req.body.locale : "ar"; const enabled = req.body.enabled !== false; const welcomeEnabled = req.body.welcome_enabled === true; const logChannelId = req.body.log_channel_id ? String(req.body.log_channel_id).slice(0, 30) : null; if (logChannelId) { const channel = await discordBotFetch(`/channels/${encodeURIComponent(logChannelId)}`); if (!channel.ok || channel.data.guild_id !== guild.id || ![0,5].includes(channel.data.type)) return res.status(400).json({ error: "اختر قناة نصية من هذا السيرفر لسجل البوت" }); } const { rows } = await pool.query("INSERT INTO bot_guild_settings(guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at) VALUES($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT(guild_id) DO UPDATE SET enabled=EXCLUDED.enabled,command_keys=EXCLUDED.command_keys,log_channel_id=EXCLUDED.log_channel_id,locale=EXCLUDED.locale,welcome_enabled=EXCLUDED.welcome_enabled,updated_at=NOW() RETURNING guild_id,enabled,command_keys,log_channel_id,locale,welcome_enabled,updated_at", [guild.id, enabled, JSON.stringify(commandKeys), logChannelId, locale, welcomeEnabled]); await audit(req.user.id, "bot.settings.update", "guild", guild.id, { command_keys: commandKeys, enabled, log_channel_id: logChannelId, locale, welcome_enabled: welcomeEnabled }); res.json({ settings: rows[0] }); } catch (e) { next(e); } });
 app.get("/api/bots/catalog", requireUser, (_req, res) => res.json({ bots: BOT_CATALOG }));
-app.get("/api/bots/commands", requireUser, (_req, res) => res.json({ commands: COMMAND_CATALOG, groups: [...new Set(COMMAND_CATALOG.map((command) => command.group))] }));
+app.get("/api/bots/commands", requireUser, (_req, res) => res.json({ commands: BOT_COMMANDS.map(command => ({ ...command, name: `/diskoko ${command.key}`, status: "available" })), groups: [...new Set(BOT_COMMANDS.map(command => command.group))] }));
 app.get("/api/custom-templates", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,description,definition,status,version,created_at,updated_at FROM custom_templates WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]); res.json({ templates: rows }); } catch (e) { next(e); } });
 app.post("/api/custom-templates", requireUser, requireWriteAccess, async (req, res, next) => { try { await requirePlanCapacity(req.user, "customTemplates"); const name = String(req.body.name || "قالب جديد").trim().slice(0, 80); const description = String(req.body.description || "").trim().slice(0, 300); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : { categories: [], channels: [], roles: [] }; const { rows } = await pool.query("INSERT INTO custom_templates(user_id,name,description,definition) VALUES($1,$2,$3,$4) RETURNING *", [req.user.id, name, description, definition]); await pool.query("INSERT INTO template_versions(template_id,version,definition) VALUES($1,1,$2)", [rows[0].id, definition]); await audit(req.user.id, "custom_template.create", "custom_template", rows[0].id, { name }); res.status(201).json({ template: rows[0] }); } catch (e) { next(e); } });
 app.put("/api/custom-templates/:id", requireUser, requireWriteAccess, async (req, res, next) => { try { const current = (await pool.query("SELECT * FROM custom_templates WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!current) return res.status(404).json({ error: "القالب غير موجود" }); const definition = req.body.definition && typeof req.body.definition === "object" ? req.body.definition : current.definition; const name = String(req.body.name || current.name).trim().slice(0, 80); const description = String(req.body.description ?? current.description).trim().slice(0, 300); const version = Number(current.version || 1) + 1; const { rows } = await pool.query("UPDATE custom_templates SET name=$1,description=$2,definition=$3,version=$4,updated_at=NOW() WHERE id=$5 AND user_id=$6 RETURNING *", [name, description, definition, version, current.id, req.user.id]); await pool.query("INSERT INTO template_versions(template_id,version,definition) VALUES($1,$2,$3)", [current.id, version, definition]); await audit(req.user.id, "custom_template.update", "custom_template", current.id, { version }); res.json({ template: rows[0] }); } catch (e) { next(e); } });
@@ -853,6 +842,7 @@ app.use((req, res, next) => {
   next();
 });
 app.get("/admin.html", (_req, res) => res.redirect(301, "/admin"));
+app.get("/admin-console.html", (_req, res) => res.redirect(301, "/admin"));
 app.get("/admin-login", async (req, res, next) => { try { const user = await currentUser(req); if (user && isAdmin(user)) return res.redirect("/admin"); res.sendFile(path.join(__dirname, "admin-login.html")); } catch (error) { next(error); } });
 app.get("/admin", async (req, res, next) => { try { const user = await currentUser(req); if (!user) return res.redirect("/admin-login"); if (!isAdmin(user)) return res.redirect("/account.html"); res.sendFile(path.join(__dirname, "admin-console.html")); } catch (error) { next(error); } });
 app.get("/studio", (req, res, next) => { if (!req.query.guild) return res.redirect(302, "/account.html#servers"); next(); });
@@ -860,7 +850,7 @@ app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION 
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
-app.use((error, _req, res, _next) => { console.error(error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
+app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, requestId: req.requestId, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
 
 migrate().then(() => migrateWorkspace(pool)).then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));

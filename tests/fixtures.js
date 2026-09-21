@@ -11,6 +11,11 @@ export function fixtureResponse(url) {
   if (url === '/api/account/overview') return account;
   if (url === `/api/workspace/${guild.id}`) return workspace;
   if (url.includes('/bot-settings')) return { settings: { enabled: true, command_keys: ['help', 'ping', 'about'], log_channel_id: null, locale: 'ar' } };
+  if (url === '/api/bots/commands') return { commands: [
+    { key: 'help', title: 'المساعدة', description: 'يعرض الأوامر المفعلة لهذا السيرفر.', example: 'الأوامر المفعلة', status: 'available' },
+    { key: 'ping', title: 'فحص الاستجابة', description: 'يقيس سرعة استجابة البوت.', example: 'Pong', status: 'available' },
+    { key: 'about', title: 'عن ديسكوكو', description: 'يعرّف الأعضاء بوظيفة البوت.', example: 'ديسكوكو', status: 'available' },
+  ] };
   if (url.includes('/schedules')) return { schedules: [] };
   if (url.includes('/analytics')) return { totals: { messages: 0, active_members: 0 }, members: [], channels: [], daily: [], days: 7 };
   if (url === '/api/workspace-templates') return { templates: [{ key: 'gaming', name: 'مجتمع ألعاب', categories: [{ name: 'مجتمع', channels: ['عام'] }], roles: ['عضو'], operations: [{ resource_type: 'channel', name: 'عام' }, { resource_type: 'role', name: 'عضو' }] }] };

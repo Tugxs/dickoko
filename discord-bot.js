@@ -1,4 +1,5 @@
 import { ActivityType, Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -12,17 +13,17 @@ let state = {
 };
 
 const COMMANDS = [
-  new SlashCommandBuilder().setName("diskoko").setDescription("مساعد Diskoko لمجتمعك").addSubcommand((command) => command.setName("help").setDescription("عرض المساعدة")).addSubcommand((command) => command.setName("ping").setDescription("فحص سرعة الاستجابة")).addSubcommand((command) => command.setName("about").setDescription("عرض معلومات Diskoko")),
+  BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك')),
 ];
 const COMMAND_JSON = COMMANDS.map((command) => command.toJSON());
-const DEFAULT_SETTINGS = { enabled: true, command_keys: ["help", "ping", "about"], log_channel_id: null, locale: "ar", welcome_enabled: false };
+const DEFAULT_SETTINGS = { enabled: true, command_keys: [...DEFAULT_BOT_COMMAND_KEYS], log_channel_id: null, locale: "ar", welcome_enabled: false };
 let databasePool = null;
 
 async function guildSettings(guildId) {
   if (!databasePool) return DEFAULT_SETTINGS;
   try {
     const { rows } = await databasePool.query("SELECT enabled,command_keys,log_channel_id,locale,welcome_enabled FROM bot_guild_settings WHERE guild_id=$1", [guildId]);
-    return rows[0] ? { ...DEFAULT_SETTINGS, ...rows[0] } : DEFAULT_SETTINGS;
+    return rows[0] ? { ...DEFAULT_SETTINGS, ...rows[0], command_keys: validBotCommandKeys(rows[0].command_keys) } : DEFAULT_SETTINGS;
   } catch (error) {
     console.error("Could not read bot guild settings", error);
     return DEFAULT_SETTINGS;
