@@ -15,7 +15,7 @@
 - Serialize token refresh; include Discord Administrator users among manageable servers.
 - Change creation is transactional. Guild-scoped database advisory locks serialize application. Retries retain original immutable plan inputs and completed category references.
 - Schedules use database claims; ambiguous interrupted deliveries are failed for manual review, never blindly replayed.
-- Analytics retention is 30 UTC calendar days; counts start only after opt-in. Requires standard GuildMessages events, not MessageContent intent.
+- Analytics retention is 365 UTC calendar days; each plan can query only its allowed 7/30/90/365-day window. Counts start only after opt-in. Requires standard GuildMessages events, not MessageContent intent.
 
 ## Validation
 `npm ci`, `npm run check`, `npm test` (22 initial regression tests for domain, API application and DOM journeys).

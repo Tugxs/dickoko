@@ -10,6 +10,7 @@ for (const [name, args] of [
   ['API syntax', ['--check', 'lib/workspace-api.js']],
   ['tests', ['--test', 'tests/api.test.js', 'tests/billing.test.js', 'tests/bot-catalog.test.js', 'tests/domain.test.js', 'tests/ui.test.js']],
   ['static links', ['scripts/check-static.mjs']],
+  ['asset versions', ['scripts/sync-assets.mjs', '--check']],
   ['secret scan', ['scripts/check-secrets.mjs']],
 ]) {
   process.stdout.write(`\n[${name}]\n`);
