@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -15,6 +16,7 @@ import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, public
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const requestContext = new AsyncLocalStorage();
 const PORT = Number(process.env.PORT || 10000);
 const BASE_URL = process.env.BASE_URL?.replace(/\/$/, "") || `http://localhost:${PORT}`;
 const FRONTEND_URL = process.env.FRONTEND_URL?.replace(/\/$/, "") || BASE_URL;
@@ -269,7 +271,7 @@ app.use((req, res, next) => {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; frame-ancestors 'none'",
   });
-  next();
+  requestContext.run({ requestId: req.requestId }, next);
 });
 app.use(express.json({ limit: "512kb", verify: (req, _res, buffer) => { if (req.path === "/api/webhooks/billing") req.rawBody = Buffer.from(buffer); } }));
 app.use("/api", (req, res, next) => {
@@ -483,7 +485,8 @@ function requireAdmin(req, res, next) {
   requireUser(req, res, () => isAdmin(req.user) ? next() : res.status(403).json({ error: "غير مصرح" }));
 }
 async function audit(actor, action, targetType, targetId, details = {}) {
-  await pool.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [actor || null, action, targetType, targetId ? String(targetId) : null, details]);
+  const requestId = requestContext.getStore()?.requestId;
+  await pool.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [actor || null, action, targetType, targetId ? String(targetId) : null, requestId ? { ...details, requestId } : details]);
 }
 async function requireWriteAccess(req, res, next) {
   try {
@@ -831,7 +834,19 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
     await audit(req.user.id, "admin.user.update", "user", rows[0].id, { plan, status }); res.json({ user: publicUser(rows[0]) });
   } catch (e) { next(e); }
 });
-app.get("/api/admin/audit", requireAdmin, async (_req, res, next) => { try { const { rows } = await pool.query("SELECT a.*,u.username actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 100"); res.json({ logs: rows }); } catch (e) { next(e); } });
+app.get("/api/admin/audit", requireAdmin, async (req, res, next) => {
+  try {
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 50;
+    const q = `%${String(req.query.q || "").trim().slice(0, 80).replace(/[\\%_]/g, "\\$&")}%`;
+    const where = "a.action ILIKE $1 OR COALESCE(a.target_type,'') ILIKE $1 OR COALESCE(a.target_id,'') ILIKE $1 OR COALESCE(u.username,'') ILIKE $1";
+    const [items, count] = await Promise.all([
+      pool.query(`SELECT a.id,a.action,a.target_type,a.target_id,a.details,a.created_at,u.username actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE ${where} ORDER BY a.created_at DESC,a.id DESC LIMIT $2 OFFSET $3`, [q, pageSize, (page - 1) * pageSize]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE ${where}`, [q]),
+    ]);
+    res.json({ logs: items.rows, pagination: { page, pageSize, total: count.rows[0].total, pages: Math.ceil(count.rows[0].total / pageSize) } });
+  } catch (error) { next(error); }
+});
 
 app.use((req, res, next) => {
   if (/^\/(?:server\.js|discord-bot\.js|package(?:-lock)?\.json|\.env(?:\..*)?|node_modules(?:\/|$)|docs(?:\/|$)|lib(?:\/|$)|tests(?:\/|$)|scripts(?:\/|$))/.test(req.path)) return res.status(404).end();
@@ -852,7 +867,7 @@ app.put("/api/admin/users/:id/subscription", requireAdmin, async (req, res, next
     if (!user) { await client.query("ROLLBACK"); return res.status(404).json({ error: "المستخدم غير موجود" }); }
     const { rows } = await client.query("INSERT INTO subscriptions(user_id,provider,plan,status,billing_interval,current_period_start,current_period_end,amount_sar,currency) VALUES($1,'manual',$2,$3,$4,NOW(),$5,$6,'SAR') RETURNING *", [user.id, plan, status, interval, end, amount]);
     await client.query("UPDATE users SET plan=$1,updated_at=NOW() WHERE id=$2", [plan, user.id]);
-    await client.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [req.user.id, "admin.subscription.update", "user", String(user.id), { plan, status, interval, current_period_end: end }]);
+    await client.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [req.user.id, "admin.subscription.update", "user", String(user.id), { plan, status, interval, current_period_end: end, requestId: req.requestId }]);
     await client.query("COMMIT");
     res.json({ subscription: rows[0] });
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); next(error); }

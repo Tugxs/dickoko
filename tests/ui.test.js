@@ -116,3 +116,22 @@ test('admin dashboard remains usable when one section fails to load', async () =
   assert.match(dom.window.document.querySelector('#adminError').textContent, /تعذر تحميل بعض بيانات الإدارة/);
   dom.window.close();
 });
+test('admin audit view shows the actor, action and request ID', async () => {
+  const dom = new JSDOM(fs.readFileSync(new URL('../admin-console.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin', runScripts: 'outside-only', pretendToBeVisual: true });
+  dom.window.fetch = async url => {
+    const body = url === '/api/me' ? { user: { isAdmin: true, username: 'owner' } }
+      : String(url).startsWith('/api/admin/audit?') ? { logs: [{ id: 1, actor: 'owner', action: 'admin.subscription.update', target_type: 'user', target_id: '42', details: { requestId: 'req-123' }, created_at: '2026-09-21T00:00:00Z' }], pagination: { page: 1, pages: 1, total: 1 } }
+      : url === '/api/admin/stats' ? { stats: {} }
+      : String(url).startsWith('/api/admin/users?') ? { users: [], pagination: { page: 1, pages: 1, total: 0 } }
+      : url === '/api/admin/finance' ? { invoices: [], upgradeRequests: [] }
+      : url === '/api/admin/coupons' ? { coupons: [] }
+      : url === '/api/admin/reports' ? { reports: [] } : {};
+    return { ok: true, json: async () => body };
+  };
+  dom.window.eval(fs.readFileSync(new URL('../admin-console.20260921.js', import.meta.url), 'utf8'));
+  await settle();
+  dom.window.document.querySelector('[data-view="audit"]').click();
+  assert.match(dom.window.document.querySelector('#content').textContent, /admin.subscription.update/);
+  assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
+  dom.window.close();
+});
