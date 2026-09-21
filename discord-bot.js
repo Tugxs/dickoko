@@ -1,5 +1,8 @@
-import { ActivityType, Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import crypto from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
+import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
+import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -13,11 +16,51 @@ let state = {
 };
 
 const COMMANDS = [
-  BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك')),
+  BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك'))
+    .addSubcommand(command => command.setName('ai').setDescription('اسأل AI ديسكوكو عن تنظيم سيرفرك').addStringOption(option => option.setName('prompt').setDescription('ما الذي تريد تنظيمه؟').setRequired(true).setMaxLength(1000))),
 ];
 const COMMAND_JSON = COMMANDS.map((command) => command.toJSON());
 const DEFAULT_SETTINGS = { enabled: true, command_keys: [...DEFAULT_BOT_COMMAND_KEYS], log_channel_id: null, locale: "ar", welcome_enabled: false };
 let databasePool = null;
+const AI_LIMITS = { free: 0, starter: 20, growth: 100, business: 300 };
+
+async function answerAiInteraction(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  if (!databasePool || !process.env.AI_WORKER_TOKEN) return interaction.editReply('AI ديسكوكو غير متصل حاليًا. حاول لاحقًا.');
+  if (!interaction.guildId || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return interaction.editReply('هذا الأمر لمديري السيرفر فقط.');
+  const user = (await databasePool.query(`SELECT u.id,u.plan FROM users u JOIN guild_connections g ON g.user_id=u.id AND g.guild_id=$1
+    WHERE u.discord_id=$2 AND u.status='active' AND g.install_status='installed' LIMIT 1`, [interaction.guildId, interaction.user.id])).rows[0];
+  if (!user) return interaction.editReply('اربط حساب Discord وسيرفرك في diskoko.com أولًا.');
+  const plan = canonicalPlan(user.plan);
+  const limit = AI_LIMITS[plan] || 0;
+  if (!limit) return interaction.editReply('AI ديسكوكو متاح من باقة Starter. طوّر باقتك من الموقع أولًا.');
+  const subscription = (await databasePool.query('SELECT status,grace_until FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1', [user.id])).rows[0];
+  if (subscriptionAccess(subscription || { status: 'active' }).mode !== 'full') return interaction.editReply('اشتراكك في وضع القراءة فقط. حدّث وسيلة الدفع من الموقع لاستئناف AI ديسكوكو.');
+  const online = (await databasePool.query("SELECT last_seen_at FROM ai_worker_state WHERE id=1 AND last_seen_at > NOW()-INTERVAL '1 minute'")).rows[0];
+  if (!online) return interaction.editReply('جهاز AI ديسكوكو غير متصل حاليًا. حاول لاحقًا.');
+  const prompt = interaction.options.getString('prompt', true).trim();
+  const client = await databasePool.connect();
+  let id;
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1::int,$2::int)', [Number(user.id) % 2147483647, 791]);
+    const daily = (await client.query("SELECT COUNT(*)::int AS total FROM ai_requests WHERE user_id=$1 AND created_at > NOW()-INTERVAL '24 hours'", [user.id])).rows[0].total;
+    if (daily >= limit) { await client.query('ROLLBACK'); return interaction.editReply('وصلت إلى حد طلبات AI ديسكوكو اليومية لهذه الباقة.'); }
+    const active = (await client.query("SELECT id FROM ai_requests WHERE user_id=$1 AND status IN ('pending','processing') LIMIT 1", [user.id])).rows[0];
+    if (active) { await client.query('ROLLBACK'); return interaction.editReply('لديك طلب قيد المعالجة. انتظر نتيجته أولًا.'); }
+    id = crypto.randomUUID();
+    await client.query('INSERT INTO ai_requests(id,user_id,guild_id,prompt) VALUES($1,$2,$3,$4)', [id, user.id, interaction.guildId, prompt]);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
+  finally { client.release(); }
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await delay(3000);
+    const result = (await databasePool.query('SELECT status,answer,error FROM ai_requests WHERE id=$1 AND user_id=$2', [id, user.id])).rows[0];
+    if (result?.status === 'completed') return interaction.editReply(String(result.answer).slice(0, 1900));
+    if (result?.status === 'failed') return interaction.editReply(result.error || 'تعذر توليد الرد. حاول مجددًا.');
+  }
+  return interaction.editReply('الطلب ما زال قيد المعالجة. افتح AI ديسكوكو في الموقع للمتابعة.');
+}
 
 async function guildSettings(guildId) {
   if (!databasePool) return DEFAULT_SETTINGS;
@@ -116,6 +159,12 @@ export async function startDiscordBot({ pool } = {}) {
     if (!interaction.isChatInputCommand() || interaction.commandName !== "diskoko") return;
     const subcommand = interaction.options.getSubcommand();
     const settings = await guildSettings(interaction.guildId);
+    if (subcommand === 'ai') {
+      if (!settings.enabled) return interaction.reply({ content: 'البوت غير مفعّل لهذا السيرفر.', ephemeral: true });
+      try { await answerAiInteraction(interaction); void recordCommand(interaction.guildId, 'ai', true); }
+      catch (error) { console.error('AI command failed', error); void recordCommand(interaction.guildId, 'ai', false); if (interaction.deferred || interaction.replied) await interaction.editReply('تعذر تشغيل AI ديسكوكو الآن. حاول مجددًا.').catch(() => {}); else await interaction.reply({ content: 'تعذر تشغيل AI ديسكوكو الآن.', ephemeral: true }).catch(() => {}); }
+      return;
+    }
     if (!settings.enabled || !settings.command_keys.includes(subcommand)) return interaction.reply({ content: settings.locale === "en" ? "This command is disabled for this server." : "هذا الأمر غير مفعّل لهذا السيرفر.", ephemeral: true });
     const replies = settings.locale === 'en' ? {
       help: `Available commands: ${settings.command_keys.map(key => '`/diskoko ' + key + '`').join(', ')}`,
@@ -148,3 +197,4 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 }
+
