@@ -55,3 +55,13 @@ test('subscription page shows four plans, annual savings and real usage', async 
   assert.match(doc.body.textContent, /شهران مجانًا/);
   dom.window.close();
 });
+test('projects page exposes create, bind, rename, duplicate and archive actions without prompts', async () => {
+  const { dom, doc } = await page('projects', fixtureResponse, 'account.html', 'account.js');
+  assert.match(doc.body.textContent, /مشروع المجتمع/);
+  assert.ok(doc.querySelector('#createProject'));
+  assert.ok(doc.querySelector('.bind-project'));
+  assert.ok(doc.querySelector('.save-project'));
+  assert.ok(doc.querySelector('.duplicate-project'));
+  assert.ok(doc.querySelector('.archive-project'));
+  dom.window.close();
+});
