@@ -9,7 +9,7 @@ import nodemailer from "nodemailer";
 import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
 import { mountWorkspace, migrateWorkspace, startScheduleRunner } from "./lib/workspace-api.js";
 import { manageable, problem, supportedCommands, connectionState } from "./lib/workspace-domain.js";
-import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert } from "./lib/billing.js";
+import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -229,6 +229,10 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_upgrade_pending ON billing_upgrade_requests(user_id) WHERE status='pending';
+    ALTER TABLE billing_upgrade_requests ADD COLUMN IF NOT EXISTS coupon_code TEXT;
+    ALTER TABLE billing_upgrade_requests ADD COLUMN IF NOT EXISTS subtotal INTEGER;
+    ALTER TABLE billing_upgrade_requests ADD COLUMN IF NOT EXISTS discount INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE billing_upgrade_requests ADD COLUMN IF NOT EXISTS total INTEGER;
     CREATE TABLE IF NOT EXISTS discount_coupons (
       id BIGSERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, discount_type TEXT NOT NULL DEFAULT 'percent',
       discount_value INTEGER NOT NULL, max_redemptions INTEGER, redeemed_count INTEGER NOT NULL DEFAULT 0,
@@ -574,13 +578,26 @@ app.post("/api/webhooks/billing", async (req, res, next) => {
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); next(error); } finally { client.release(); }
 });
 app.get("/api/billing/plans", (_req, res) => res.json({ currency: 'SAR', annualMonthsFree: 2, plans: publicPlanCatalog() }));
-app.post("/api/billing/upgrade-requests", requireUser, async (req, res, next) => { try {
-  const plan = canonicalPlan(req.body.plan); const interval = req.body.billing_interval === 'annual' ? 'annual' : 'monthly';
+async function quoteForRequest(plan, interval, code) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (normalized && !/^[A-Z0-9_-]{3,32}$/.test(normalized)) throw new Error('رمز الكوبون غير صالح.');
+  const coupon = normalized ? (await pool.query('SELECT code,discount_type,discount_value,max_redemptions,redeemed_count,expires_at,active FROM discount_coupons WHERE code=$1', [normalized])).rows[0] : null;
+  if (normalized && !coupon) throw new Error('الكوبون غير موجود.');
+  return upgradeQuote(plan, interval, coupon);
+}
+app.post('/api/billing/quote', requireUser, async (req, res, next) => { try {
+  const plan = String(req.body.plan || '').toLowerCase();
   if (!['starter','growth','business'].includes(plan)) return res.status(400).json({ error: 'اختر باقة مدفوعة صالحة.' });
-  const { rows } = await pool.query("INSERT INTO billing_upgrade_requests(user_id,plan,billing_interval) VALUES($1,$2,$3) ON CONFLICT(user_id) WHERE status='pending' DO UPDATE SET plan=EXCLUDED.plan,billing_interval=EXCLUDED.billing_interval,updated_at=NOW() RETURNING id,plan,billing_interval,status,created_at,updated_at", [req.user.id, plan, interval]);
-  await audit(req.user.id, 'billing.upgrade.requested', 'user', req.user.id, { plan, billing_interval: interval });
+  res.json({ quote: await quoteForRequest(plan, req.body.billing_interval, req.body.coupon_code) });
+} catch (e) { if (e.message.includes('كوبون')) return res.status(400).json({ error: e.message }); next(e); } });
+app.post("/api/billing/upgrade-requests", requireUser, async (req, res, next) => { try {
+  const plan = String(req.body.plan || '').toLowerCase(); const interval = req.body.billing_interval === 'annual' ? 'annual' : 'monthly';
+  if (!['starter','growth','business'].includes(plan)) return res.status(400).json({ error: 'اختر باقة مدفوعة صالحة.' });
+  const quote = await quoteForRequest(plan, interval, req.body.coupon_code);
+  const { rows } = await pool.query("INSERT INTO billing_upgrade_requests(user_id,plan,billing_interval,coupon_code,subtotal,discount,total) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(user_id) WHERE status='pending' DO UPDATE SET plan=EXCLUDED.plan,billing_interval=EXCLUDED.billing_interval,coupon_code=EXCLUDED.coupon_code,subtotal=EXCLUDED.subtotal,discount=EXCLUDED.discount,total=EXCLUDED.total,updated_at=NOW() RETURNING id,plan,billing_interval,coupon_code,subtotal,discount,total,status,created_at,updated_at", [req.user.id, plan, interval, quote.coupon_code, quote.subtotal, quote.discount, quote.total]);
+  await audit(req.user.id, 'billing.upgrade.requested', 'user', req.user.id, { plan, billing_interval: interval, coupon_code: quote.coupon_code, total: quote.total });
   res.status(201).json({ request: rows[0], message: 'استلمنا طلب الترقية. سنفتح الدفع فور ربط بوابة الدفع.' });
-} catch (e) { next(e); } });
+} catch (e) { if (e.message.includes('كوبون')) return res.status(400).json({ error: e.message }); next(e); } });
 app.get("/api/account/overview", requireUser, async (req, res, next) => { try {
   const [subscriptionResult, guilds, connections, activity, customBots, customTemplates, scheduledMessages, changeSets, invoices, upgradeRequest, projects] = await Promise.all([
     pool.query("SELECT plan,status,billing_interval,current_period_start,current_period_end,grace_until,cancel_at_period_end,amount_sar,currency,provider,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]),
@@ -589,7 +606,7 @@ app.get("/api/account/overview", requireUser, async (req, res, next) => { try {
     pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id]),
     planCapacity(req.user, "customBots"), planCapacity(req.user, "customTemplates"), planCapacity(req.user, "scheduledMessages"), planCapacity(req.user, "changeSetsPerMonth"),
     pool.query("SELECT provider_ref,status,amount,currency,invoice_url,issued_at,paid_at FROM billing_invoices WHERE user_id=$1 ORDER BY issued_at DESC LIMIT 12", [req.user.id]),
-    pool.query("SELECT id,plan,billing_interval,status,created_at,updated_at FROM billing_upgrade_requests WHERE user_id=$1 AND status='pending' ORDER BY updated_at DESC LIMIT 1", [req.user.id]),
+    pool.query("SELECT id,plan,billing_interval,coupon_code,subtotal,discount,total,status,created_at,updated_at FROM billing_upgrade_requests WHERE user_id=$1 AND status='pending' ORDER BY updated_at DESC LIMIT 1", [req.user.id]),
     pool.query("SELECT id,name,guild_id,deployment_status,archived_at,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY archived_at NULLS FIRST,updated_at DESC", [req.user.id]),
   ]);
   const subscription = subscriptionResult.rows[0] || { plan: canonicalPlan(req.user.plan), status: canonicalPlan(req.user.plan) === 'free' ? 'trial' : 'active', current_period_end: null, billing_interval: null };
@@ -780,6 +797,7 @@ app.post("/api/projects", requireUser, requireWriteAccess, async (req, res, next
 });
 app.put("/api/projects/:id", requireUser, requireWriteAccess, async (req, res, next) => {
   try {
+    if (Object.hasOwn(req.body, 'guildId')) return res.status(400).json({ error: 'اربط السيرفر عبر خطوة ربط المشروع المخصصة.' });
     const { rows } = await pool.query("UPDATE projects SET name=COALESCE($1,name),guild_id=COALESCE($2,guild_id),design=COALESCE($3,design),updated_at=NOW() WHERE id=$4 AND user_id=$5 RETURNING *", [req.body.name?.slice(0,80) || null, req.body.guildId || null, req.body.design || null, req.params.id, req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: "المشروع غير موجود" });
     await audit(req.user.id, "project.update", "project", rows[0].id); res.json({ project: rows[0] });
@@ -801,7 +819,8 @@ app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
 });
 app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
   try {
-    const plan = ["free","trial","starter","growth","business","complete"].includes(req.body.plan) ? req.body.plan : null;
+    if (Object.hasOwn(req.body, 'plan')) return res.status(400).json({ error: 'عدّل الباقة من قسم الاشتراكات حتى تتطابق صلاحيات المستخدم مع اشتراكه.' });
+    const plan = null;
     const status = ["active","suspended","cancelled"].includes(req.body.status) ? req.body.status : null;
     const { rows } = await pool.query("UPDATE users SET plan=COALESCE($1,plan),status=COALESCE($2,status),updated_at=NOW() WHERE id=$3 RETURNING *", [plan, status, req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: "المستخدم غير موجود" });
@@ -815,12 +834,20 @@ app.use((req, res, next) => {
   next();
 });
 app.put("/api/admin/users/:id/subscription", requireAdmin, async (req, res, next) => { try { const plan=canonicalPlan(req.body.plan),status=["trial","active","past_due","grace","cancelled","expired"].includes(req.body.status)?req.body.status:"active",interval=req.body.billingInterval==="annual"?"annual":"monthly",end=req.body.currentPeriodEnd?new Date(req.body.currentPeriodEnd):null,amount=Math.max(0,Number(req.body.amountSar)||0); if(end&&Number.isNaN(end.getTime()))return res.status(400).json({error:"تاريخ الانتهاء غير صالح"}); const user=(await pool.query("SELECT id FROM users WHERE id=$1",[req.params.id])).rows[0]; if(!user)return res.status(404).json({error:"المستخدم غير موجود"}); const {rows}=await pool.query("INSERT INTO subscriptions(user_id,provider,plan,status,billing_interval,current_period_start,current_period_end,amount_sar,currency) VALUES($1,'manual',$2,$3,$4,NOW(),$5,$6,'SAR') RETURNING *",[user.id,plan,status,interval,end,amount]); await pool.query("UPDATE users SET plan=$1,updated_at=NOW() WHERE id=$2",[plan,user.id]); await audit(req.user.id,"admin.subscription.update","user",user.id,{plan,status,interval,current_period_end:end}); res.json({subscription:rows[0]}); } catch(e){next(e);} });
-app.get("/api/admin/finance", requireAdmin, async (_req,res,next)=>{try{const [invoices,requests]=await Promise.all([pool.query("SELECT i.id,i.provider_ref,i.status,i.amount,i.currency,i.issued_at,i.paid_at,u.username,u.display_name FROM billing_invoices i JOIN users u ON u.id=i.user_id ORDER BY i.issued_at DESC LIMIT 200"),pool.query("SELECT r.id,r.plan,r.billing_interval,r.status,r.created_at,u.username,u.display_name FROM billing_upgrade_requests r JOIN users u ON u.id=r.user_id ORDER BY r.updated_at DESC LIMIT 100")]);res.json({invoices:invoices.rows,upgradeRequests:requests.rows});}catch(e){next(e);}});
+app.get("/api/admin/finance", requireAdmin, async (_req,res,next)=>{try{const [invoices,requests]=await Promise.all([pool.query("SELECT i.id,i.provider_ref,i.status,i.amount,i.currency,i.issued_at,i.paid_at,u.username,u.display_name FROM billing_invoices i JOIN users u ON u.id=i.user_id ORDER BY i.issued_at DESC LIMIT 200"),pool.query("SELECT r.id,r.plan,r.billing_interval,r.coupon_code,r.subtotal,r.discount,r.total,r.status,r.created_at,u.username,u.display_name FROM billing_upgrade_requests r JOIN users u ON u.id=r.user_id ORDER BY r.updated_at DESC LIMIT 100")]);res.json({invoices:invoices.rows,upgradeRequests:requests.rows});}catch(e){next(e);}});
 app.get("/api/admin/coupons", requireAdmin, async (_req,res,next)=>{try{res.json({coupons:(await pool.query("SELECT * FROM discount_coupons ORDER BY created_at DESC")).rows});}catch(e){next(e);}});
 app.post("/api/admin/coupons", requireAdmin, async (req,res,next)=>{try{const code=String(req.body.code||'').trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'').slice(0,32),type=req.body.discountType==='fixed'?'fixed':'percent',value=Math.max(1,Number(req.body.discountValue)||0),max=req.body.maxRedemptions?Math.max(1,Number(req.body.maxRedemptions)):null,expires=req.body.expiresAt?new Date(req.body.expiresAt):null;if(code.length<3||value<1||(type==='percent'&&value>100))return res.status(400).json({error:'بيانات الكوبون غير صالحة'});const {rows}=await pool.query("INSERT INTO discount_coupons(code,discount_type,discount_value,max_redemptions,expires_at,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",[code,type,value,max,expires,req.user.id]);await audit(req.user.id,'admin.coupon.create','coupon',rows[0].id,{code});res.status(201).json({coupon:rows[0]});}catch(e){if(e.code==='23505')return res.status(409).json({error:'رمز الكوبون مستخدم'});next(e);}});
 app.patch("/api/admin/coupons/:id", requireAdmin, async (req,res,next)=>{try{const {rows}=await pool.query("UPDATE discount_coupons SET active=COALESCE($1,active),expires_at=CASE WHEN $2::text IS NULL THEN expires_at ELSE $2::timestamptz END,updated_at=NOW() WHERE id=$3 RETURNING *",[typeof req.body.active==='boolean'?req.body.active:null,req.body.expiresAt||null,req.params.id]);if(!rows[0])return res.status(404).json({error:'الكوبون غير موجود'});await audit(req.user.id,'admin.coupon.update','coupon',rows[0].id,{active:rows[0].active});res.json({coupon:rows[0]});}catch(e){next(e);}});
 app.get("/api/admin/reports", requireAdmin, async (_req,res,next)=>{try{res.json({reports:(await pool.query("SELECT r.*,u.username,u.display_name,u.email FROM support_reports r LEFT JOIN users u ON u.id=r.user_id ORDER BY r.created_at DESC LIMIT 200")).rows});}catch(e){next(e);}});
 app.patch("/api/admin/reports/:id", requireAdmin, async (req,res,next)=>{try{const status=['open','in_progress','resolved','closed'].includes(req.body.status)?req.body.status:null,priority=['low','normal','high','urgent'].includes(req.body.priority)?req.body.priority:null;const {rows}=await pool.query("UPDATE support_reports SET status=COALESCE($1,status),priority=COALESCE($2,priority),updated_at=NOW() WHERE id=$3 RETURNING *",[status,priority,req.params.id]);if(!rows[0])return res.status(404).json({error:'البلاغ غير موجود'});await audit(req.user.id,'admin.report.update','report',rows[0].id,{status,priority});res.json({report:rows[0]});}catch(e){next(e);}});
+app.get('/api/reports', requireUser, async (req,res,next)=>{try{const {rows}=await pool.query("SELECT id,subject,category,status,created_at,updated_at FROM support_reports WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20",[req.user.id]);res.json({reports:rows});}catch(e){next(e);}});
+app.post('/api/reports', requireUser, rateLimit(5, 60_000), async (req,res,next)=>{try{
+  const subject=String(req.body.subject||'').trim(),details=String(req.body.details||'').trim();
+  const category=['technical','account','subscription','safety','general'].includes(req.body.category)?req.body.category:'general';
+  if(subject.length<5||subject.length>120||details.length<20||details.length>4000)return res.status(400).json({error:'اكتب عنوانًا من 5 إلى 120 حرفًا وتفاصيل من 20 إلى 4000 حرف.'});
+  const {rows}=await pool.query("INSERT INTO support_reports(user_id,subject,category,details) VALUES($1,$2,$3,$4) RETURNING id,subject,category,status,created_at",[req.user.id,subject,category,details]);
+  await audit(req.user.id,'report.create','report',rows[0].id,{category});res.status(201).json({report:rows[0]});
+}catch(e){next(e);}});
 app.use((req, res, next) => {
   if (["/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/admin", "/admin-login", "/admin.html", "/admin-console.20260921.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
   next();
