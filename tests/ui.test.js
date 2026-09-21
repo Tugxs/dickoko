@@ -45,3 +45,13 @@ test('account offers one direct primary route per guild', async () => {
   const { dom, doc } = await page('servers', fixtureResponse, 'account.html', 'account.js');
   assert.equal(doc.querySelectorAll('.server-card .btn').length, 2); assert.match(doc.querySelector('.server-card a').href, /studio\?guild=.*#overview/); assert.doesNotMatch(doc.body.textContent, /فتح Studio/); dom.window.close();
 });
+test('subscription page shows four plans, annual savings and real usage', async () => {
+  const { dom, doc } = await page('subscription', fixtureResponse, 'account.html', 'account.js');
+  assert.equal(doc.querySelectorAll('.billing-plan').length, 4);
+  assert.match(doc.body.textContent, /خطط التغييرات/);
+  assert.ok(doc.body.textContent.includes((15000).toLocaleString('ar-SA')));
+  doc.querySelector('[data-interval="annual"]').click();
+  assert.ok(doc.body.textContent.includes((2990).toLocaleString('ar-SA')));
+  assert.match(doc.body.textContent, /شهران مجانًا/);
+  dom.window.close();
+});
