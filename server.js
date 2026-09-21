@@ -44,7 +44,7 @@ async function migrate() {
       display_name TEXT,
       avatar TEXT,
       email TEXT,
-      plan TEXT NOT NULL DEFAULT 'trial' CHECK (plan IN ('trial','starter','growth','complete')),
+      plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free','starter','growth','business','trial','complete')),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','cancelled')),
       access_token TEXT,
       refresh_token TEXT,
@@ -201,9 +201,9 @@ async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMPTZ;
     ALTER TABLE users DROP CONSTRAINT IF EXISTS users_plan_check;
-    UPDATE users SET plan = CASE plan WHEN 'free' THEN 'trial' WHEN 'pro' THEN 'growth' WHEN 'studio' THEN 'complete' ELSE plan END;
-    ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'trial';
-    ALTER TABLE users ADD CONSTRAINT users_plan_check CHECK (plan IN ('trial','starter','growth','complete'));
+    UPDATE users SET plan = CASE plan WHEN 'trial' THEN 'free' WHEN 'complete' THEN 'business' WHEN 'pro' THEN 'growth' WHEN 'studio' THEN 'business' ELSE plan END;
+    ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'free';
+    ALTER TABLE users ADD CONSTRAINT users_plan_check CHECK (plan IN ('free','starter','growth','business','trial','complete'));
   `);
 }
 
@@ -342,15 +342,19 @@ function safeReturnTo(value) {
   return target.startsWith("/") && !target.startsWith("//") && !target.includes("\\") ? target : null;
 }
 function publicUser(row) {
-  return { id: row.id, discordId: row.discord_id, username: row.username, displayName: row.display_name, avatar: row.avatar, email: row.email, plan: row.plan, status: row.status, isAdmin: isAdmin(row), createdAt: row.created_at };
+  return { id: row.id, discordId: row.discord_id, username: row.username, displayName: row.display_name, avatar: row.avatar, email: row.email, plan: canonicalPlan(row.plan), status: row.status, isAdmin: isAdmin(row), createdAt: row.created_at };
 }
 const PLAN_LIMITS = {
+  free: { servers: 1, customBots: 1, changeSetsPerMonth: 10 },
+  starter: { servers: 1, customBots: 5, changeSetsPerMonth: 300 },
+  growth: { servers: 3, customBots: 10, changeSetsPerMonth: 3000 },
+  business: { servers: 10, customBots: 20, changeSetsPerMonth: 15000 },
+  // Legacy aliases keep existing accounts working until their next billing sync.
   trial: { servers: 1, customBots: 1, changeSetsPerMonth: 10 },
-  starter: { servers: 1, customBots: 5, changeSetsPerMonth: 50 },
-  growth: { servers: 3, customBots: 10, changeSetsPerMonth: 250 },
-  complete: { servers: 5, customBots: 5, changeSetsPerMonth: 1000 },
+  complete: { servers: 10, customBots: 20, changeSetsPerMonth: 15000 },
 };
-function entitlementsFor(user) { return PLAN_LIMITS[user?.plan] || PLAN_LIMITS.trial; }
+function canonicalPlan(plan) { return plan === "trial" ? "free" : plan === "complete" ? "business" : plan || "free"; }
+function entitlementsFor(user) { return PLAN_LIMITS[canonicalPlan(user?.plan)] || PLAN_LIMITS.free; }
 async function planCapacity(user, kind) {
   const limits = entitlementsFor(user);
   if (kind === "servers") {
@@ -378,7 +382,7 @@ async function requirePlanCapacity(user, kind) {
   }
   return capacity;
 }
-const BILLING_PLANS = new Set(["trial", "starter", "growth", "complete"]);
+const BILLING_PLANS = new Set(["free", "starter", "growth", "business", "trial", "complete"]);
 const BILLING_STATUSES = new Set(["trial", "active", "past_due", "cancelled", "expired"]);
 function verifyBillingSignature(req) {
   const secret = process.env.BILLING_WEBHOOK_SECRET;
@@ -508,9 +512,9 @@ app.post("/api/webhooks/billing", async (req, res, next) => {
     res.json({ ok: true, eventId, plan: payload.plan, status: payload.status });
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); next(error); } finally { client.release(); }
 });
-app.get("/api/account/overview", requireUser, async (req, res, next) => { try { const [subscription, guilds, connections, activity, customBots, changeSets] = await Promise.all([pool.query("SELECT plan,status,current_period_end,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]), manageableGuilds(req.user), pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]), pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id]), planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); const byGuild = new Map(connections.rows.map((row) => [String(row.guild_id), row])); res.json({ user: publicUser(req.user), plan: subscription.rows[0] || { plan: req.user.plan, status: req.user.plan === "trial" ? "trial" : "active", current_period_end: null }, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth: changeSets }, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows }); } catch (e) { next(e); } });
+app.get("/api/account/overview", requireUser, async (req, res, next) => { try { const [subscription, guilds, connections, activity, customBots, changeSets] = await Promise.all([pool.query("SELECT plan,status,current_period_end,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]), manageableGuilds(req.user), pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]), pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id]), planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); const byGuild = new Map(connections.rows.map((row) => [String(row.guild_id), row])); const currentPlan = subscription.rows[0] ? { ...subscription.rows[0], plan: canonicalPlan(subscription.rows[0].plan) } : { plan: canonicalPlan(req.user.plan), status: canonicalPlan(req.user.plan) === "free" ? "free" : "active", current_period_end: null }; res.json({ user: publicUser(req.user), plan: currentPlan, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth: changeSets }, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows }); } catch (e) { next(e); } });
 app.get("/api/account/subscription-events", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT provider,event_id,event_type,provider_ref,payload,processed_at FROM subscription_events WHERE user_id=$1 ORDER BY processed_at DESC LIMIT 50", [req.user.id]); res.json({ events: rows }); } catch (e) { next(e); } });
-app.get("/api/account/entitlements", requireUser, async (req, res, next) => { try { const [customBots, changeSetsPerMonth] = await Promise.all([planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); res.json({ plan: req.user.plan, limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth } }); } catch (e) { next(e); } });
+app.get("/api/account/entitlements", requireUser, async (req, res, next) => { try { const [customBots, changeSetsPerMonth] = await Promise.all([planCapacity(req.user, "customBots"), planCapacity(req.user, "changeSetsPerMonth")]); res.json({ plan: canonicalPlan(req.user.plan), limits: entitlementsFor(req.user), usage: { customBots, changeSetsPerMonth } }); } catch (e) { next(e); } });
 app.get("/api/guilds", requireUser, async (req, res, next) => {
   try {
     const guilds = await manageableGuilds(req.user);
@@ -742,7 +746,7 @@ app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
 });
 app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
   try {
-    const plan = ["trial","starter","growth","complete"].includes(req.body.plan) ? req.body.plan : null;
+    const plan = ["free","starter","growth","business","trial","complete"].includes(req.body.plan) ? req.body.plan : null;
     const status = ["active","suspended","cancelled"].includes(req.body.status) ? req.body.status : null;
     const { rows } = await pool.query("UPDATE users SET plan=COALESCE($1,plan),status=COALESCE($2,status),updated_at=NOW() WHERE id=$3 RETURNING *", [plan, status, req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: "المستخدم غير موجود" });
