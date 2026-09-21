@@ -172,12 +172,12 @@ async function showPlan(id) {
   };
 }
 const botPresets = [
-  { kind: 'general', icon: '◈', title: 'بوت عام', description: 'هوية خاصة لمجتمعك؛ اختر أوامره بعد ربط تطبيق Discord.' },
-  { kind: 'games', icon: '♟', title: 'بوت ألعاب', description: 'مساحة لأوامر الألعاب والتحديات والنقاط بعد تشغيل البوت الخاص.' },
-  { kind: 'music', icon: '♫', title: 'بوت موسيقى', description: 'تصميم بوت صوتي خاص؛ تشغيل الموسيقى يحتاج عامل صوت وربط مصدر مسموح.' },
-  { kind: 'welcome', icon: '✦', title: 'بوت ترحيب', description: 'جهّز رسائل الاستقبال وأوامر تعريف الأعضاء.' },
-  { kind: 'moderation', icon: '◇', title: 'بوت إشراف', description: 'خطط لأوامر الإشراف مع مراجعة الصلاحيات قبل التشغيل.' },
-  { kind: 'assistant', icon: '✧', title: 'بوت ذكاء اصطناعي', description: 'مساعد منفصل لسيرفرك. يحتاج ربط جهاز الذكاء الاصطناعي أولًا.' },
+  { kind: 'general', icon: '◈', title: 'بوت عام', description: 'هوية خاصة لمجتمعك؛ اختر أوامره بعد ربط تطبيق Discord.', commands: [['help', 'المساعدة'], ['rules', 'القوانين'], ['info', 'معلومات السيرفر']] },
+  { kind: 'games', icon: '♟', title: 'بوت ألعاب', description: 'مساحة لأوامر الألعاب والتحديات والنقاط بعد تشغيل البوت الخاص.', commands: [['dice', 'رمي النرد'], ['coin', 'عملة عشوائية'], ['trivia', 'أسئلة سريعة']] },
+  { kind: 'music', icon: '♫', title: 'بوت موسيقى', description: 'تصميم بوت صوتي خاص؛ تشغيل الموسيقى يحتاج عامل صوت وربط مصدر مسموح.', commands: [['play', 'تشغيل'], ['skip', 'تخطي'], ['queue', 'قائمة التشغيل'], ['stop', 'إيقاف']] },
+  { kind: 'welcome', icon: '✦', title: 'بوت ترحيب', description: 'جهّز رسائل الاستقبال وأوامر تعريف الأعضاء.', commands: [['welcome', 'الترحيب'], ['rules', 'القوانين'], ['roles', 'الرتب']] },
+  { kind: 'moderation', icon: '◇', title: 'بوت إشراف', description: 'خطط لأوامر الإشراف مع مراجعة الصلاحيات قبل التشغيل.', commands: [['warn', 'تحذير'], ['mute', 'كتم مؤقت'], ['logs', 'السجل']] },
+  { kind: 'assistant', icon: '✧', title: 'بوت ذكاء اصطناعي', description: 'مساعد منفصل لسيرفرك. يحتاج ربط جهاز الذكاء الاصطناعي أولًا.', commands: [['ask', 'اسأل المساعد'], ['plan', 'خطط لتعديل السيرفر']] },
 ];
 async function bots() {
   const guild = state.guild, epoch = state.epoch;
@@ -189,7 +189,7 @@ async function bots() {
   const free = (state.account?.limits?.plan || state.account?.user?.plan) === 'free';
   const cards = items.map(bot => {
     const preset = botPresets.find(item => item.kind === bot.definition?.kind) || botPresets[0];
-    return `<article class="server-card bot-instance"><div class="server-title"><span class="server-image">${preset.icon}</span><div class="row-main"><h3>${esc(bot.name)}</h3><small>${esc(preset.title)} · ${esc(state.data.guild.name)}</small></div>${badge('تصميم محفوظ', 'purple')}</div><p class="form-note">${esc(bot.description || preset.description)}</p><div class="notice info"><div><b>خطوة الربط التالية</b><p>أنشئ تطبيق البوت في Discord Developer Portal باسمك. الربط والتشغيل المستقل سيظهران هنا بعد تجهيز عامل البوتات؛ هذا التصميم لم يُثبت في Discord بعد.</p></div></div><div class="actions"><button class="btn secondary" data-edit-bot="${bot.id}">تعديل التصميم</button><a class="btn text" href="https://discord.com/developers/applications" target="_blank" rel="noopener">فتح بوابة Discord ↗</a></div></article>`;
+    return `<article class="server-card bot-instance"><div class="server-title"><span class="server-image">${preset.icon}</span><div class="row-main"><h3>${esc(bot.name)}</h3><small>${esc(preset.title)} · ${esc(state.data.guild.name)}</small></div>${badge('تصميم محفوظ', 'purple')}</div><p class="form-note">${esc(bot.description || preset.description)}</p><div class="bot-command-tags">${(bot.definition?.commands || []).map(key => `<span>/${esc(key)}</span>`).join('') || '<small>لا أوامر مختارة</small>'}</div><div class="notice info"><div><b>خطوة الربط التالية</b><p>أنشئ تطبيق البوت في Discord Developer Portal باسمك. الربط والتشغيل المستقل سيظهران هنا بعد تجهيز عامل البوتات؛ هذا التصميم لم يُثبت في Discord بعد.</p></div></div><div class="actions"><button class="btn secondary" data-edit-bot="${bot.id}">تعديل التصميم</button><a class="btn text" href="https://discord.com/developers/applications" target="_blank" rel="noopener">فتح بوابة Discord ↗</a></div></article>`;
   }).join('');
   $('#workspace').innerHTML = head('بوتات تحمل اسم مجتمعك', 'لكل بوت وظيفة واسم مستقلان. تصاميم البوتات هنا لا تعني أنها مثبتة أو تعمل بعد.') + connectionNotice() + `<div class="notice info"><div><b>${fmt(capacity.used)} من ${fmt(capacity.limit)} تصاميم بوت في باقتك</b><p>Free: 1 · Starter: 5 · Growth: 10 · Business: 20. إنشاء التطبيق وربطه وتشغيله خطوات منفصلة.</p></div>${!available ? '<a class="btn secondary" href="/account.html#subscription">عرض الباقات</a>' : ''}</div><div class="section-title"><h3>بوتات هذا السيرفر</h3><small>هويتك، أوامرك، ومسار ربط واضح</small></div><div class="server-grid">${cards || `<div class="panel">${empty('لم تصمم بوتًا لهذا السيرفر بعد', 'اختر نوعًا من البوتات الجاهزة أدناه وسمّه باسم مجتمعك.')}</div>`}</div><div class="section-title"><h3>ابدأ بنوع جاهز</h3><small>يحفظ تصميم البوت لتخصيصه وربطه لاحقًا</small></div><div class="server-grid bot-gallery">${botPresets.map(preset => `<article class="server-card bot-preset"><div class="server-title"><span class="server-image">${preset.icon}</span><div><h3>${preset.title}</h3><small>${preset.kind === 'assistant' && free ? 'يتطلب Starter أو أعلى' : 'تصميم قابل للتخصيص'}</small></div></div><p>${preset.description}</p><button class="btn ${preset.kind === 'assistant' ? 'secondary' : 'primary'}" data-create-bot="${preset.kind}" ${!available ? 'disabled' : ''}>${!available ? 'وصلت لحد الباقة' : preset.kind === 'assistant' && free ? 'ترقية الباقة' : 'اختيار هذا النوع'}</button></article>`).join('')}</div>`;
   document.querySelectorAll('[data-create-bot]').forEach(button => button.onclick = () => {
@@ -200,8 +200,9 @@ async function bots() {
   });
   document.querySelectorAll('[data-edit-bot]').forEach(button => button.onclick = () => {
     const bot = items.find(item => String(item.id) === button.dataset.editBot);
-    modal('تعديل تصميم البوت', `<form id="editBotForm" class="form-grid"><label>اسم البوت<input id="editBotName" maxlength="80" required value="${esc(bot.name)}"></label><label>وصف البوت<textarea id="editBotDescription" maxlength="300" rows="3">${esc(bot.description)}</textarea></label><button class="btn primary" type="submit">حفظ التعديل</button></form>`);
-    $('#editBotForm').onsubmit = run(async event => { event.preventDefault(); const submit = event.submitter; submit.disabled = true; try { await api(`/api/custom-bots/${bot.id}`, { method: 'PUT', body: JSON.stringify({ name: $('#editBotName').value, description: $('#editBotDescription').value }) }); closeDialog(); await bots(); toast('تحدّث تصميم البوت.'); } finally { submit.disabled = false; } });
+    const preset = botPresets.find(item => item.kind === bot.definition?.kind) || botPresets[0];
+    modal('تعديل تصميم البوت', `<form id="editBotForm" class="form-grid"><label>اسم البوت<input id="editBotName" maxlength="80" required value="${esc(bot.name)}"></label><label>وصف البوت<textarea id="editBotDescription" maxlength="300" rows="3">${esc(bot.description)}</textarea></label><div><b>أوامر هذا النوع</b>${preset.commands.map(([key, label]) => `<label class="check-row"><input class="custom-command" type="checkbox" value="${key}" ${(bot.definition?.commands || []).includes(key) ? 'checked' : ''}> /${key} · ${label}</label>`).join('')}</div><p class="form-note">هذه أوامر التصميم. لا تُسجّل في Discord حتى يكتمل ربط البوت وتشغيله.</p><button class="btn primary" type="submit">حفظ التعديل</button></form>`);
+    $('#editBotForm').onsubmit = run(async event => { event.preventDefault(); const submit = event.submitter; submit.disabled = true; try { await api(`/api/custom-bots/${bot.id}`, { method: 'PUT', body: JSON.stringify({ name: $('#editBotName').value, description: $('#editBotDescription').value, commands: [...document.querySelectorAll('.custom-command:checked')].map(input => input.value) }) }); closeDialog(); await bots(); toast('تحدّث تصميم البوت.'); } finally { submit.disabled = false; } });
   });
 }
 function assistant() {
@@ -279,5 +280,6 @@ window.addEventListener('hashchange', () => { render(); $('#workspace').focus({ 
 window.addEventListener('focus', () => { if (state.awaitingInstall) { state.awaitingInstall = false; loadGuild(); } });
 $('#dialog').addEventListener('cancel', event => { if ($('#applyPlan')?.textContent === 'جارٍ التطبيق…') event.preventDefault(); });
 start();
+
 
 
