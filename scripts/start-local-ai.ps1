@@ -19,7 +19,7 @@ $env:LOCAL_AI_PROVIDER = 'llama'
 $env:LOCAL_AI_URL = 'http://127.0.0.1:11434'
 $env:DISKOKO_URL = $SiteUrl
 
-if (-not (Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue)) {
+if (-not (Test-NetConnection 127.0.0.1 -Port 11434 -InformationLevel Quiet)) {
   Start-Process -FilePath $server -WorkingDirectory (Split-Path $server) -ArgumentList @('-m', "`"$model`"", '-ngl', '99', '--host', '127.0.0.1', '--port', '11434', '-c', '4096', '-np', '1', '--jinja') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $RuntimeDirectory 'model.out.log') -RedirectStandardError (Join-Path $RuntimeDirectory 'model.err.log')
 }
 
