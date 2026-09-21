@@ -16,7 +16,7 @@
 
   logoChips.forEach((el, index) => {
     el.style.setProperty('--logo-index', index);
-    el.style.setProperty('--logo-depth', `${(index % 4) * 12}`);
+    el.style.setProperty('--logo-depth', `${(index % 4) * 8}`);
   });
   planCards.forEach((el, index) => el.style.setProperty('--card-index', index));
   knowledgeCards.forEach((el, index) => el.style.setProperty('--card-index', index));
@@ -34,9 +34,10 @@
       const rect = section.getBoundingClientRect();
       const viewport = window.innerHeight || document.documentElement.clientHeight;
       const progress = clamp((viewport * .94 - rect.top) / (viewport * .86 + rect.height));
+      const eased = progress * progress * (3 - 2 * progress);
       const inScene = rect.bottom > viewport * .08 && rect.top < viewport * .92;
       section.classList.toggle('is-3d-active', active && inScene);
-      section.style.setProperty('--section-progress', inScene ? progress.toFixed(3) : (rect.top >= viewport ? '0' : '1'));
+      section.style.setProperty('--section-progress', inScene ? eased.toFixed(3) : (rect.top >= viewport ? '0' : '1'));
     });
   }
 
