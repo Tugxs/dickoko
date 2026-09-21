@@ -1,7 +1,7 @@
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const planNames = { free: 'Free', trial: 'Free', starter: 'Starter', growth: 'Growth', business: 'Business', complete: 'Business' };
-const usageNames = { servers: 'السيرفرات المرتبطة', changeSetsPerMonth: 'خطط التغييرات', scheduledMessages: 'الرسائل المجدولة', customTemplates: 'القوالب الخاصة', customBots: 'ملفات البوت' };
+const usageNames = { servers: 'السيرفرات المرتبطة', changeSetsPerMonth: 'خطط التغييرات', scheduledMessages: 'الرسائل المجدولة', customTemplates: 'القوالب الخاصة', customBots: 'تصاميم البوتات' };
 let account; let interval = 'monthly'; let couponCode = ''; let couponQuote = null;
 function target() { return ['servers', 'create', 'projects', 'subscription'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'servers'; }
 async function api(path, options) { const response = await fetch(path, { credentials: 'include', cache: 'no-store', ...options }); const data = await response.json(); if (!response.ok) throw Object.assign(Error(data.error || 'تعذر تحميل البيانات.'), { status: response.status, data }); return data; }
@@ -21,7 +21,7 @@ function renderProjects() {
 }
 function planCard(plan, current) {
   const price = interval === 'annual' ? plan.annualPrice : plan.monthlyPrice; const suffix = interval === 'annual' ? 'ر.س / سنة' : 'ر.س / شهر'; const active = current === plan.key;
-  const features = [`${plan.servers} سيرفر`, `${plan.changeSetsPerMonth.toLocaleString('ar-SA')} تغيير شهريًا`, `${plan.scheduledMessages.toLocaleString('ar-SA')} رسالة مجدولة`, `تحليلات ${plan.analyticsDays} يومًا`, `${plan.teamSeats} مستخدم`];
+  const features = [`${plan.servers} سيرفر`, `${plan.customBots} تصاميم بوتات`, `${plan.changeSetsPerMonth.toLocaleString('ar-SA')} تغيير شهريًا`, `${plan.scheduledMessages.toLocaleString('ar-SA')} رسالة مجدولة`, `تحليلات ${plan.analyticsDays} يومًا`, `${plan.teamSeats} مستخدم`];
   return `<article class="billing-plan ${plan.key === 'growth' ? 'featured' : ''} ${active ? 'current' : ''}">${plan.key === 'growth' ? '<span class="plan-ribbon">الأكثر توازنًا</span>' : ''}<div class="plan-title"><h3>${esc(plan.name)}</h3>${active ? '<span class="badge good">خطتك الحالية</span>' : ''}</div><div class="plan-price"><b>${price.toLocaleString('ar-SA')}</b><span>${suffix}</span></div>${interval === 'annual' && plan.annualSaving > 0 ? `<small class="saving">توفر ${plan.annualSaving.toLocaleString('ar-SA')} ر.س سنويًا</small>` : '<small class="saving">ابدأ واختبر رحلة الإدارة</small>'}<ul>${features.map(item => `<li>✓ ${esc(item)}</li>`).join('')}</ul>${plan.key === 'free' || active ? `<button class="btn secondary" disabled>${active ? 'الباقة الحالية' : 'متاحة تلقائيًا'}</button>` : `<button class="btn ${plan.key === 'growth' ? 'primary' : 'secondary'} upgrade-plan" data-plan="${plan.key}">اختيار ${esc(plan.name)}</button>`}</article>`;
 }
 function renderSubscription() {

@@ -12,6 +12,10 @@ test('annual pricing always gives exactly two months free', () => {
   for (const plan of publicPlanCatalog()) assert.equal(plan.annualSaving, plan.monthlyPrice * 2);
 });
 
+test('bot design limits match the announced plans', () => {
+  assert.deepEqual(publicPlanCatalog().map(plan => plan.customBots), [1, 5, 10, 20]);
+});
+
 test('past due subscriptions keep full access only inside grace period', () => {
   const now = new Date('2026-09-21T00:00:00Z');
   assert.equal(subscriptionAccess({ status: 'past_due', grace_until: '2026-09-22T00:00:00Z' }, now).mode, 'full');
