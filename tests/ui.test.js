@@ -55,3 +55,23 @@ test('subscription page shows four plans, annual savings and real usage', async 
   assert.match(doc.body.textContent, /شهران مجانًا/);
   dom.window.close();
 });
+test('projects page exposes create, bind, rename, duplicate and archive actions without prompts', async () => {
+  const { dom, doc } = await page('projects', fixtureResponse, 'account.html', 'account.js');
+  assert.match(doc.body.textContent, /مشروع المجتمع/);
+  assert.ok(doc.querySelector('#createProject'));
+  assert.ok(doc.querySelector('.bind-project'));
+  assert.ok(doc.querySelector('.save-project'));
+  assert.ok(doc.querySelector('.duplicate-project'));
+  assert.ok(doc.querySelector('.archive-project'));
+  dom.window.close();
+});
+test('admin dashboard renders all current plan totals without a missing element crash', async () => {
+  const dom = new JSDOM(fs.readFileSync(new URL('../admin-console.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin.html', runScripts: 'outside-only', pretendToBeVisual: true });
+  dom.window.alert = () => assert.fail('admin dashboard raised an alert');
+  dom.window.fetch = async url => ({ ok: true, json: async () => url === '/api/me' ? { user: { isAdmin: true, username: 'owner', displayName: 'Owner' } } : url === '/api/admin/stats' ? { stats: { users: 4, active: 4, free: 1, starter: 1, growth: 1, business: 1, projects: 2, active_subscriptions: 3, revenue_month: 0, connected_servers: 2, active_bots: 2 } } : url === '/api/admin/users' ? { users: [] } : url === '/api/admin/finance' ? { invoices: [], upgradeRequests: [] } : url === '/api/admin/coupons' ? { coupons: [] } : url === '/api/admin/reports' ? { reports: [] } : { token: 'test' } });
+  dom.window.eval(fs.readFileSync(new URL('../admin-console.20260921.js', import.meta.url), 'utf8')); await settle();
+  assert.match(dom.window.document.querySelector('#content').textContent, /إجمالي المستخدمين/);
+  assert.match(dom.window.document.querySelector('#content').textContent, /اشتراكات نشطة/);
+  assert.equal(dom.window.document.querySelectorAll('.admin-kpis .metric').length, 8);
+  dom.window.close();
+});

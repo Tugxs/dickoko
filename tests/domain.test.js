@@ -30,6 +30,13 @@ test('matching channels uses exact category, including uncategorized channels', 
 test('voice templates create voice channels', () => {
   assert.equal(operationBody({ resource_type: 'channel', name: 'Lounge', type: 2 }).type, 2);
 });
+test('channel topics, forums and ordering are normalized for reviewed execution', () => {
+  const [created] = normalizeOperations([{ resource_type: 'channel', name: 'المنتدى', type: 15, topic: 'ناقش أفكار المجتمع', position: 3 }], snapshot);
+  assert.deepEqual(operationBody(created), { name: 'المنتدى', type: 15, topic: 'ناقش أفكار المجتمع' });
+  const [updated] = normalizeOperations([{ action: 'update', resource_type: 'channel', resource_id: 'one', name: 'chat', topic: 'وصف جديد', position: 2 }], snapshot);
+  assert.equal(updated.position, 2); assert.equal(updated.before.position, undefined); assert.equal(operationBody(updated).topic, 'وصف جديد');
+  assert.throws(() => normalizeOperations([{ resource_type: 'channel', name: 'bad', type: 15, position: 999 }], snapshot));
+});
 test('stale changes are rejected but an already applied edit can be resumed', () => {
   const op = { action: 'update', resource_type: 'channel', name: 'after', before: { name: 'before' } };
   assert.throws(() => checkConflict(op, { name: 'someone-else' })); assert.doesNotThrow(() => checkConflict(op, { name: 'after' }));
