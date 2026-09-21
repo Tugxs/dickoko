@@ -99,3 +99,20 @@ test('admin users search and pagination query the server', async () => {
   assert.ok(urls.some(url => url.includes('page=2')));
   dom.window.close();
 });
+test('admin dashboard remains usable when one section fails to load', async () => {
+  const dom = new JSDOM(fs.readFileSync(new URL('../admin-console.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin', runScripts: 'outside-only', pretendToBeVisual: true });
+  dom.window.fetch = async url => {
+    if (url === '/api/admin/reports') throw new Error('temporary database failure');
+    const body = url === '/api/me' ? { user: { isAdmin: true, username: 'owner' } }
+      : url === '/api/admin/stats' ? { stats: { users: 2, active: 2, free: 2 } }
+      : String(url).startsWith('/api/admin/users?') ? { users: [], pagination: { page: 1, pages: 1, total: 0 } }
+      : url === '/api/admin/finance' ? { invoices: [], upgradeRequests: [] }
+      : url === '/api/admin/coupons' ? { coupons: [] } : {};
+    return { ok: true, json: async () => body };
+  };
+  dom.window.eval(fs.readFileSync(new URL('../admin-console.20260921.js', import.meta.url), 'utf8'));
+  await settle();
+  assert.match(dom.window.document.querySelector('#content').textContent, /إجمالي المستخدمين/);
+  assert.match(dom.window.document.querySelector('#adminError').textContent, /تعذر تحميل بعض بيانات الإدارة/);
+  dom.window.close();
+});
