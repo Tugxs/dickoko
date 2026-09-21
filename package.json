@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js && node --check workspace.js && node --check account.js && node --check discord-bot.js && node --check lib/workspace-api.js",
+    "test": "node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=20"
@@ -17,5 +18,8 @@
     "express-session": "^1.18.1",
     "nodemailer": "^10.0.10",
     "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
   }
 }
