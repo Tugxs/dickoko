@@ -11,6 +11,7 @@ import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
 import { mountWorkspace, migrateWorkspace, startScheduleRunner } from "./lib/workspace-api.js";
 import { manageable, problem, connectionState } from "./lib/workspace-domain.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from "./lib/bot-catalog.js";
+import { migrateLocalAi, mountLocalAi, workerAuthorized } from "./lib/local-ai.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 
 const { Pool } = pg;
@@ -303,6 +304,7 @@ app.get("/api/csrf-token", (req, res) => res.json({ token: csrfToken(req) }));
 app.use("/api", (req, res, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
   if (req.path === "/webhooks/billing") return next();
+  if (req.path.startsWith("/ai/worker/") && workerAuthorized(req)) return next();
   if (!sameOrigin(req)) return res.status(403).json({ error: "مصدر الطلب غير مسموح" });
   const token = req.get("x-csrf-token");
   if (!token || token !== csrfToken(req)) return res.status(403).json({ error: "رمز حماية الطلب غير صالح أو مفقود" });
@@ -821,6 +823,7 @@ app.post("/api/projects/:id/bind-guild", requireUser, requireWriteAccess, async 
   } catch (e) { next(e); }
 });
 mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: getDiscordBotStatus });
+mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan });
 app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,archived_at,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY archived_at NULLS FIRST,updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
 app.patch("/api/projects/:id", requireUser, requireWriteAccess, async (req, res, next) => { try { const name = String(req.body.name || '').trim().slice(0, 80); if (name.length < 2) return res.status(400).json({ error: 'اكتب اسمًا من حرفين على الأقل.' }); const { rows } = await pool.query("UPDATE projects SET name=$1,updated_at=NOW() WHERE id=$2 AND user_id=$3 RETURNING id,name,guild_id,deployment_status,archived_at,created_at,updated_at", [name, req.params.id, req.user.id]); if (!rows[0]) return res.status(404).json({ error: 'المشروع غير موجود.' }); await audit(req.user.id, 'project.rename', 'project', rows[0].id, { name }); res.json({ project: rows[0] }); } catch (e) { next(e); } });
@@ -949,7 +952,7 @@ app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
 app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, requestId: req.requestId, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
 
-migrate().then(() => migrateWorkspace(pool)).then(() => {
+migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
   void startDiscordBot({ pool });
   startScheduleRunner({ pool, discordBotFetch, authorizedGuild });

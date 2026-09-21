@@ -205,9 +205,39 @@ async function bots() {
     $('#editBotForm').onsubmit = run(async event => { event.preventDefault(); const submit = event.submitter; submit.disabled = true; try { await api(`/api/custom-bots/${bot.id}`, { method: 'PUT', body: JSON.stringify({ name: $('#editBotName').value, description: $('#editBotDescription').value, commands: [...document.querySelectorAll('.custom-command:checked')].map(input => input.value) }) }); closeDialog(); await bots(); toast('تحدّث تصميم البوت.'); } finally { submit.disabled = false; } });
   });
 }
-function assistant() {
-  $('#workspace').innerHTML = head('AI ديسكوكو', 'مساحتك لطلب تنظيم السيرفر بلغة بسيطة، مع مراجعة كل تغيير قبل تطبيقه.') + connectionNotice() + `<div class="assistant-layout"><section class="panel"><div class="panel-head"><h3>تحدث مع AI ديسكوكو</h3>${badge('الذكاء المحلي غير متصل بعد', 'warn')}</div><div class="panel-body"><div class="preview"><b>✦ AI ديسكوكو</b><div class="message">أهلًا! أقدر أساعدك في تنظيم القنوات والرتب من أدوات الموقع الآن. المحادثة الذكية ستعمل بعد توصيل النموذج المحلي بجهاز التشغيل.</div></div><form id="assistantForm" class="form-grid"><label for="assistantPrompt">وش تبي تضبط في سيرفرك؟</label><textarea id="assistantPrompt" rows="4" maxlength="1500" placeholder="مثال: رتب لي رومات سيرفر ألعاب، مع قسم للدعم والصوتيات"></textarea><button class="btn primary" type="submit">عرض المسار المتاح</button></form><div id="assistantReply" role="status"></div></div></section>${panel('ابدأ الآن', `<div class="panel-body"><p>تقدر تنظم سيرفرك بقالب أو تعديلات يدوية الآن. كل تغيير يظهر في المراجعة قبل إرساله إلى Discord.</p><div class="actions">${action('القنوات والرتب', 'builder', 'primary')}${action('إعداد الأوامر', 'commands')}${action('بوتاتي', 'bots')}</div><p class="form-note">عند تشغيل النموذج المحلي، تتحول طلباتك إلى خطة تعديلات لهذا السيرفر فقط. لن يطبقها المساعد دون موافقتك.</p></div>`)}</div>`;
-  $('#assistantForm').onsubmit = event => { event.preventDefault(); const prompt = $('#assistantPrompt').value.trim(); if (!prompt) return; $('#assistantReply').innerHTML = `<div class="notice info"><div><b>سجلنا طلبك في هذه الصفحة</b><p>لم يُرسل إلى نموذج ذكاء اصطناعي ولم يتغير Discord. ابدأ الآن من القنوات والرتب، وسنربط هذه المحادثة بالنموذج المحلي بعد تجهيز جهاز التشغيل.</p></div>${action('فتح القنوات والرتب', 'builder')}</div>`; };
+async function assistant() {
+  const guild = state.guild, epoch = state.epoch;
+  $('#workspace').innerHTML = head('AI ديسكوكو', 'اطلب اقتراحًا لتنظيم سيرفرك، وراجع أي تغيير قبل تطبيقه.') + connectionNotice() + `<div class="assistant-layout"><section class="panel"><div class="panel-head"><h3>تحدث مع AI ديسكوكو</h3><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div class="panel-body"><div class="preview"><b>✦ AI ديسكوكو</b><div class="message">أهلًا! صف لي ما تحتاجه في سيرفرك، وسأقترح خطوات واضحة. لن أعدّل Discord دون مراجعتك.</div></div><form id="assistantForm" class="form-grid"><label for="assistantPrompt">وش تبي تضبط في سيرفرك؟</label><textarea id="assistantPrompt" rows="4" maxlength="1500" placeholder="مثال: رتب لي رومات سيرفر ألعاب، مع قسم للدعم والصوتيات"></textarea><button class="btn primary" type="submit">أرسل الطلب</button></form><div id="assistantReply" role="status" aria-live="polite"></div></div></section>${panel('بعد الرد', `<div class="panel-body"><p>طبّق ما يناسبك من القنوات والرتب عبر مساحة المراجعة. لا تُرسل أي تغييرات إلى Discord تلقائيًا.</p><div class="actions">${action('القنوات والرتب', 'builder', 'primary')}${action('إعداد الأوامر', 'commands')}${action('بوتاتي', 'bots')}</div></div>`)}</div>`;
+  const reply = $('#assistantReply');
+  let available = false;
+  try {
+    const status = await api('/api/ai/status');
+    if (guild !== state.guild || epoch !== state.epoch || screen() !== 'assistant') return;
+    available = status.available && status.planEnabled;
+    $('#aiStatus').className = `badge ${status.available ? 'good' : 'warn'}`;
+    $('#aiStatus').textContent = status.available ? `متصل · ${status.model || 'النموذج المحلي'}` : 'الجهاز المحلي غير متصل';
+    if (!status.planEnabled) reply.textContent = 'AI ديسكوكو متاح من باقة Starter. طوّر باقتك لتستخدمه.';
+    else if (!status.available) reply.textContent = 'شغّل AI ديسكوكو على جهاز التشغيل أولًا، ثم أعد فتح هذه الصفحة.';
+  } catch (error) { reply.textContent = error.message; }
+  $('#assistantForm').onsubmit = run(async event => {
+    event.preventDefault();
+    if (!available) { toast('الذكاء المحلي غير متصل أو غير متاح لباقتك.'); return; }
+    const prompt = $('#assistantPrompt').value.trim();
+    if (!prompt) return;
+    const button = event.submitter; button.disabled = true;
+    try {
+      const request = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, prompt }) });
+      reply.textContent = 'AI ديسكوكو يفكر في طلبك…';
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        if (guild !== state.guild || epoch !== state.epoch || screen() !== 'assistant') return;
+        const { request: result } = await api(`/api/ai/requests/${request.id}`);
+        if (result.status === 'completed') { reply.textContent = result.answer; return; }
+        if (result.status === 'failed') throw Error(result.error || 'تعذر توليد الرد. حاول مجددًا.');
+      }
+      reply.textContent = 'الطلب ما زال قيد المعالجة. أعد فتح الصفحة بعد قليل.';
+    } finally { button.disabled = false; }
+  });
 }
 async function commands() {
   const guild = state.guild; const epoch = state.epoch;

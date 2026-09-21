@@ -31,7 +31,7 @@ test('adding a resource stages a guild-specific draft without calling mutation A
 test('bot pages separate designs, live commands and AI connection state', async () => {
   const { dom, doc } = await page('bots'); assert.equal(doc.querySelectorAll('[data-create-bot]').length, 6); assert.match(doc.body.textContent, /تصميم محفوظ|تصميم قابل للتخصيص/); dom.window.close();
   const commandPage = await page('commands'); assert.equal(commandPage.doc.querySelectorAll('.command-check').length, 3); assert.equal(commandPage.doc.querySelector('#botEnabled').checked, true); commandPage.dom.window.close();
-  const assistantPage = await page('assistant'); assert.match(assistantPage.doc.body.textContent, /الذكاء المحلي غير متصل بعد/); assert.match(assistantPage.doc.body.textContent, /AI ديسكوكو/); assistantPage.dom.window.close();
+  const assistantPage = await page('assistant'); assert.match(assistantPage.doc.body.textContent, /الجهاز المحلي غير متصل/); assert.match(assistantPage.doc.body.textContent, /AI ديسكوكو/); assistantPage.dom.window.close();
 });
 test('analytics opt-in is separate from viewing analytics', async () => {
   const { dom, doc, requests } = await page('analytics'); assert.ok(doc.querySelector('#enableAnalytics')); assert.match(doc.body.textContent, /دون تخزين محتوى الرسائل/); assert.equal(requests.filter(req => req.options.method === 'PUT').length, 0); dom.window.close();
@@ -137,3 +137,4 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
+
