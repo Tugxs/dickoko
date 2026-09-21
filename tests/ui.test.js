@@ -68,10 +68,34 @@ test('projects page exposes create, bind, rename, duplicate and archive actions 
 test('admin dashboard renders all current plan totals without a missing element crash', async () => {
   const dom = new JSDOM(fs.readFileSync(new URL('../admin-console.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin.html', runScripts: 'outside-only', pretendToBeVisual: true });
   dom.window.alert = () => assert.fail('admin dashboard raised an alert');
-  dom.window.fetch = async url => ({ ok: true, json: async () => url === '/api/me' ? { user: { isAdmin: true, username: 'owner', displayName: 'Owner' } } : url === '/api/admin/stats' ? { stats: { users: 4, active: 4, free: 1, starter: 1, growth: 1, business: 1, projects: 2, active_subscriptions: 3, revenue_month: 0, connected_servers: 2, active_bots: 2 } } : url === '/api/admin/users' ? { users: [] } : url === '/api/admin/finance' ? { invoices: [], upgradeRequests: [] } : url === '/api/admin/coupons' ? { coupons: [] } : url === '/api/admin/reports' ? { reports: [] } : { token: 'test' } });
+  dom.window.fetch = async url => ({ ok: true, json: async () => url === '/api/me' ? { user: { isAdmin: true, username: 'owner', displayName: 'Owner' } } : url === '/api/admin/stats' ? { stats: { users: 4, active: 4, free: 1, starter: 1, growth: 1, business: 1, projects: 2, active_subscriptions: 3, revenue_month: 0, connected_servers: 2, active_bots: 2 } } : String(url).startsWith('/api/admin/users?') ? { users: [], pagination: { page: 1, pages: 1, total: 0 } } : url === '/api/admin/finance' ? { invoices: [], upgradeRequests: [] } : url === '/api/admin/coupons' ? { coupons: [] } : url === '/api/admin/reports' ? { reports: [] } : { token: 'test' } });
   dom.window.eval(fs.readFileSync(new URL('../admin-console.20260921.js', import.meta.url), 'utf8')); await settle();
   assert.match(dom.window.document.querySelector('#content').textContent, /إجمالي المستخدمين/);
   assert.match(dom.window.document.querySelector('#content').textContent, /اشتراكات نشطة/);
   assert.equal(dom.window.document.querySelectorAll('.admin-kpis .metric').length, 8);
+  dom.window.close();
+});
+test('admin users search and pagination query the server', async () => {
+  const dom = new JSDOM(fs.readFileSync(new URL('../admin-console.html', import.meta.url), 'utf8'), { url: 'https://diskoko.test/admin', runScripts: 'outside-only', pretendToBeVisual: true });
+  const urls = [];
+  dom.window.fetch = async url => {
+    urls.push(String(url));
+    const page = new URL(String(url), 'https://diskoko.test').searchParams.get('page');
+    const body = String(url).startsWith('/api/admin/users?') ? { users: [{ id: page === '2' ? 2 : 1, username: page === '2' ? 'second' : 'first', plan: 'free', status: 'active', serverCount: 0, botCount: 0 }], pagination: { page: Number(page), pages: 2, total: 51 } }
+      : url === '/api/me' ? { user: { isAdmin: true, username: 'owner' } }
+      : url === '/api/admin/stats' ? { stats: { users: 51 } }
+      : url === '/api/admin/finance' ? { invoices: [], upgradeRequests: [] }
+      : url === '/api/admin/coupons' ? { coupons: [] }
+      : url === '/api/admin/reports' ? { reports: [] } : { token: 'test' };
+    return { ok: true, json: async () => body };
+  };
+  dom.window.eval(fs.readFileSync(new URL('../admin-console.20260921.js', import.meta.url), 'utf8'));
+  await settle();
+  dom.window.document.querySelector('[data-view="users"]').click();
+  assert.match(dom.window.document.querySelector('#userTable').textContent, /first/);
+  dom.window.document.querySelector('.admin-page[data-page="2"]').click();
+  await settle();
+  assert.match(dom.window.document.querySelector('#userTable').textContent, /second/);
+  assert.ok(urls.some(url => url.includes('page=2')));
   dom.window.close();
 });

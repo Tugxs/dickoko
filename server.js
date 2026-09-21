@@ -182,6 +182,14 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS bot_command_daily (
+      guild_id TEXT NOT NULL,
+      day DATE NOT NULL,
+      command_key TEXT NOT NULL,
+      total INTEGER NOT NULL DEFAULT 0,
+      failed INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, day, command_key)
+    );
     CREATE TABLE IF NOT EXISTS template_versions (
       id BIGSERIAL PRIMARY KEY,
       template_id BIGINT NOT NULL REFERENCES custom_templates(id) ON DELETE CASCADE,
@@ -734,7 +742,7 @@ app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
       pool.query("SELECT id,template_key,status,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 8", [req.user.id, guild.id]),
       pool.query("SELECT event_type,quantity,metadata,created_at FROM usage_events WHERE user_id=$1 AND guild_id=$2 ORDER BY created_at DESC LIMIT 20", [req.user.id, guild.id]),
       pool.query("SELECT id,name,design,deployment_status,created_at,updated_at FROM projects WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 1", [req.user.id, guild.id]),
-      pool.query("SELECT COUNT(*)::int AS commands, COUNT(*) FILTER (WHERE event_type LIKE '%succeeded%')::int AS succeeded, COUNT(*) FILTER (WHERE event_type LIKE '%failed%')::int AS failed FROM usage_events WHERE user_id=$1 AND guild_id=$2 AND created_at >= date_trunc('month', NOW())", [req.user.id, guild.id]),
+      pool.query("SELECT COALESCE(SUM(total),0)::int AS commands, COALESCE(SUM(total-failed),0)::int AS succeeded, COALESCE(SUM(failed),0)::int AS failed FROM bot_command_daily WHERE guild_id=$1 AND day >= date_trunc('month', NOW() AT TIME ZONE 'UTC')::date", [guild.id]),
     ]);
     const channelRows = channels.ok && Array.isArray(channels.data) ? channels.data : [];
     const roleRows = roles.ok && Array.isArray(roles.data) ? roles.data : [];
@@ -795,15 +803,22 @@ app.put("/api/projects/:id", requireUser, requireWriteAccess, async (req, res, n
 
 app.get("/api/admin/stats", requireAdmin, async (_req, res, next) => {
   try {
-    const { rows } = await pool.query(`SELECT (SELECT COUNT(*) FROM users) users,(SELECT COUNT(*) FROM users WHERE status='active') active,(SELECT COUNT(*) FROM users WHERE plan='starter') starter,(SELECT COUNT(*) FROM users WHERE plan='growth') growth,(SELECT COUNT(*) FROM users WHERE plan IN ('business','complete')) business,(SELECT COUNT(*) FROM users WHERE plan IN ('free','trial')) free,(SELECT COUNT(*) FROM projects WHERE archived_at IS NULL) projects,(SELECT COUNT(*) FROM guild_connections WHERE install_status='installed') connected_servers,(SELECT COUNT(*) FROM bot_guild_settings WHERE enabled=TRUE) active_bots,(SELECT COALESCE(SUM(quantity),0) FROM usage_events) bot_events,(SELECT COUNT(*) FROM subscriptions WHERE status='active') active_subscriptions,(SELECT COUNT(*) FROM subscriptions WHERE current_period_end BETWEEN NOW() AND NOW()+INTERVAL '7 days') expiring_soon,(SELECT COALESCE(SUM(amount),0) FROM billing_invoices WHERE status='paid') revenue_total,(SELECT COALESCE(SUM(amount),0) FROM billing_invoices WHERE status='paid' AND paid_at>=date_trunc('month',NOW())) revenue_month,(SELECT COUNT(*) FROM billing_invoices WHERE status='paid') paid_invoices,(SELECT COUNT(*) FROM support_reports WHERE status IN ('open','in_progress')) open_reports,(SELECT COUNT(*) FROM discount_coupons WHERE active=TRUE AND (expires_at IS NULL OR expires_at>NOW())) active_coupons`);
+    const { rows } = await pool.query(`SELECT (SELECT COUNT(*) FROM users) users,(SELECT COUNT(*) FROM users WHERE status='active') active,(SELECT COUNT(*) FROM users WHERE plan='starter') starter,(SELECT COUNT(*) FROM users WHERE plan='growth') growth,(SELECT COUNT(*) FROM users WHERE plan IN ('business','complete')) business,(SELECT COUNT(*) FROM users WHERE plan IN ('free','trial')) free,(SELECT COUNT(*) FROM projects WHERE archived_at IS NULL) projects,(SELECT COUNT(*) FROM guild_connections WHERE install_status='installed') connected_servers,(SELECT COUNT(*) FROM bot_guild_settings WHERE enabled=TRUE) active_bots,(SELECT COALESCE(SUM(total),0) FROM bot_command_daily) bot_events,(SELECT COUNT(*) FROM subscriptions WHERE status='active') active_subscriptions,(SELECT COUNT(*) FROM subscriptions WHERE current_period_end BETWEEN NOW() AND NOW()+INTERVAL '7 days') expiring_soon,(SELECT COALESCE(SUM(amount),0) FROM billing_invoices WHERE status='paid') revenue_total,(SELECT COALESCE(SUM(amount),0) FROM billing_invoices WHERE status='paid' AND paid_at>=date_trunc('month',NOW())) revenue_month,(SELECT COUNT(*) FROM billing_invoices WHERE status='paid') paid_invoices,(SELECT COUNT(*) FROM support_reports WHERE status IN ('open','in_progress')) open_reports,(SELECT COUNT(*) FROM discount_coupons WHERE active=TRUE AND (expires_at IS NULL OR expires_at>NOW())) active_coupons`);
     res.json({ stats: rows[0] });
   } catch (e) { next(e); }
 });
 app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
   try {
-    const q = `%${String(req.query.q || "").slice(0,80)}%`;
-    const { rows } = await pool.query(`SELECT u.id,u.discord_id,u.username,u.display_name,u.avatar,u.email,u.plan,u.status,u.created_at,u.last_login_at,s.status subscription_status,s.billing_interval,s.current_period_start,s.current_period_end,s.amount_sar,s.currency,(SELECT COUNT(*) FROM guild_connections g WHERE g.user_id=u.id AND g.install_status='installed')::int server_count,(SELECT COUNT(*) FROM custom_bots b WHERE b.user_id=u.id AND b.status<>'deleted')::int bot_count FROM users u LEFT JOIN LATERAL (SELECT * FROM subscriptions WHERE user_id=u.id ORDER BY updated_at DESC LIMIT 1) s ON TRUE WHERE u.username ILIKE $1 OR COALESCE(u.display_name,'') ILIKE $1 OR COALESCE(u.email,'') ILIKE $1 ORDER BY u.created_at DESC LIMIT 300`, [q]);
-    res.json({ users: rows.map(row => ({ ...publicUser(row), lastLoginAt: row.last_login_at, subscriptionStatus: row.subscription_status, billingInterval: row.billing_interval, currentPeriodStart: row.current_period_start, currentPeriodEnd: row.current_period_end, amountSar: row.amount_sar, currency: row.currency, serverCount: row.server_count, botCount: row.bot_count })) });
+    const query = String(req.query.q || "").trim().slice(0, 80);
+    const q = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 50;
+    const where = "u.username ILIKE $1 OR COALESCE(u.display_name,'') ILIKE $1 OR COALESCE(u.email,'') ILIKE $1";
+    const [{ rows }, count] = await Promise.all([
+      pool.query(`SELECT u.id,u.discord_id,u.username,u.display_name,u.avatar,u.email,u.plan,u.status,u.created_at,u.last_login_at,s.status subscription_status,s.billing_interval,s.current_period_start,s.current_period_end,s.amount_sar,s.currency,(SELECT COUNT(*) FROM guild_connections g WHERE g.user_id=u.id AND g.install_status='installed')::int server_count,(SELECT COUNT(*) FROM custom_bots b WHERE b.user_id=u.id AND b.status<>'deleted')::int bot_count FROM users u LEFT JOIN LATERAL (SELECT * FROM subscriptions WHERE user_id=u.id ORDER BY updated_at DESC LIMIT 1) s ON TRUE WHERE ${where} ORDER BY u.created_at DESC,u.id DESC LIMIT $2 OFFSET $3`, [q, pageSize, (page - 1) * pageSize]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM users u WHERE ${where}`, [q]),
+    ]);
+    res.json({ users: rows.map(row => ({ ...publicUser(row), lastLoginAt: row.last_login_at, subscriptionStatus: row.subscription_status, billingInterval: row.billing_interval, currentPeriodStart: row.current_period_start, currentPeriodEnd: row.current_period_end, amountSar: row.amount_sar, currency: row.currency, serverCount: row.server_count, botCount: row.bot_count })), pagination: { page, pageSize, total: count.rows[0].total, pages: Math.ceil(count.rows[0].total / pageSize) } });
   } catch (e) { next(e); }
 });
 app.patch("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
@@ -822,7 +837,27 @@ app.use((req, res, next) => {
   if (/^\/(?:server\.js|discord-bot\.js|package(?:-lock)?\.json|\.env(?:\..*)?|node_modules(?:\/|$)|docs(?:\/|$)|lib(?:\/|$)|tests(?:\/|$)|scripts(?:\/|$))/.test(req.path)) return res.status(404).end();
   next();
 });
-app.put("/api/admin/users/:id/subscription", requireAdmin, async (req, res, next) => { try { const plan=canonicalPlan(req.body.plan),status=["trial","active","past_due","grace","cancelled","expired"].includes(req.body.status)?req.body.status:"active",interval=req.body.billingInterval==="annual"?"annual":"monthly",end=req.body.currentPeriodEnd?new Date(req.body.currentPeriodEnd):null,amount=Math.max(0,Number(req.body.amountSar)||0); if(end&&Number.isNaN(end.getTime()))return res.status(400).json({error:"تاريخ الانتهاء غير صالح"}); const user=(await pool.query("SELECT id FROM users WHERE id=$1",[req.params.id])).rows[0]; if(!user)return res.status(404).json({error:"المستخدم غير موجود"}); const {rows}=await pool.query("INSERT INTO subscriptions(user_id,provider,plan,status,billing_interval,current_period_start,current_period_end,amount_sar,currency) VALUES($1,'manual',$2,$3,$4,NOW(),$5,$6,'SAR') RETURNING *",[user.id,plan,status,interval,end,amount]); await pool.query("UPDATE users SET plan=$1,updated_at=NOW() WHERE id=$2",[plan,user.id]); await audit(req.user.id,"admin.subscription.update","user",user.id,{plan,status,interval,current_period_end:end}); res.json({subscription:rows[0]}); } catch(e){next(e);} });
+app.put("/api/admin/users/:id/subscription", requireAdmin, async (req, res, next) => {
+  const plan = String(req.body.plan || "").toLowerCase();
+  const status = String(req.body.status || "");
+  const interval = String(req.body.billingInterval || "");
+  const end = req.body.currentPeriodEnd ? new Date(req.body.currentPeriodEnd) : null;
+  const amount = Number(req.body.amountSar);
+  if (!["free", "starter", "growth", "business"].includes(plan) || !BILLING_STATUSES.has(status) || !["monthly", "annual"].includes(interval) || (end && Number.isNaN(end.getTime())) || !Number.isFinite(amount) || amount < 0 || amount > 1000000) return res.status(400).json({ error: "بيانات الاشتراك غير صالحة" });
+  const client = await pool.connect().catch(next);
+  if (!client) return;
+  try {
+    await client.query("BEGIN");
+    const user = (await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [req.params.id])).rows[0];
+    if (!user) { await client.query("ROLLBACK"); return res.status(404).json({ error: "المستخدم غير موجود" }); }
+    const { rows } = await client.query("INSERT INTO subscriptions(user_id,provider,plan,status,billing_interval,current_period_start,current_period_end,amount_sar,currency) VALUES($1,'manual',$2,$3,$4,NOW(),$5,$6,'SAR') RETURNING *", [user.id, plan, status, interval, end, amount]);
+    await client.query("UPDATE users SET plan=$1,updated_at=NOW() WHERE id=$2", [plan, user.id]);
+    await client.query("INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,details) VALUES($1,$2,$3,$4,$5)", [req.user.id, "admin.subscription.update", "user", String(user.id), { plan, status, interval, current_period_end: end }]);
+    await client.query("COMMIT");
+    res.json({ subscription: rows[0] });
+  } catch (error) { await client.query("ROLLBACK").catch(() => {}); next(error); }
+  finally { client.release(); }
+});
 app.get("/api/admin/finance", requireAdmin, async (_req,res,next)=>{try{const [invoices,requests]=await Promise.all([pool.query("SELECT i.id,i.provider_ref,i.status,i.amount,i.currency,i.issued_at,i.paid_at,u.username,u.display_name FROM billing_invoices i JOIN users u ON u.id=i.user_id ORDER BY i.issued_at DESC LIMIT 200"),pool.query("SELECT r.id,r.plan,r.billing_interval,r.coupon_code,r.subtotal,r.discount,r.total,r.status,r.created_at,u.username,u.display_name FROM billing_upgrade_requests r JOIN users u ON u.id=r.user_id ORDER BY r.updated_at DESC LIMIT 100")]);res.json({invoices:invoices.rows,upgradeRequests:requests.rows});}catch(e){next(e);}});
 app.get("/api/admin/coupons", requireAdmin, async (_req,res,next)=>{try{res.json({coupons:(await pool.query("SELECT * FROM discount_coupons ORDER BY created_at DESC")).rows});}catch(e){next(e);}});
 app.post("/api/admin/coupons", requireAdmin, async (req,res,next)=>{try{const code=String(req.body.code||'').trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'').slice(0,32),type=req.body.discountType==='fixed'?'fixed':'percent',value=Math.max(1,Number(req.body.discountValue)||0),max=req.body.maxRedemptions?Math.max(1,Number(req.body.maxRedemptions)):null,expires=req.body.expiresAt?new Date(req.body.expiresAt):null;if(code.length<3||value<1||(type==='percent'&&value>100))return res.status(400).json({error:'بيانات الكوبون غير صالحة'});const {rows}=await pool.query("INSERT INTO discount_coupons(code,discount_type,discount_value,max_redemptions,expires_at,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",[code,type,value,max,expires,req.user.id]);await audit(req.user.id,'admin.coupon.create','coupon',rows[0].id,{code});res.status(201).json({coupon:rows[0]});}catch(e){if(e.code==='23505')return res.status(409).json({error:'رمز الكوبون مستخدم'});next(e);}});
@@ -857,8 +892,3 @@ migrate().then(() => migrateWorkspace(pool)).then(() => {
   void startDiscordBot({ pool });
   startScheduleRunner({ pool, discordBotFetch, authorizedGuild });
 }).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
-
-
-
-
-

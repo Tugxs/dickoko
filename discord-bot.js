@@ -30,6 +30,16 @@ async function guildSettings(guildId) {
   }
 }
 
+async function recordCommand(guildId, commandKey, success) {
+  if (!databasePool || !guildId) return;
+  try {
+    await databasePool.query(`INSERT INTO bot_command_daily(guild_id,day,command_key,total,failed)
+      VALUES($1,(NOW() AT TIME ZONE 'UTC')::date,$2,1,$3)
+      ON CONFLICT(guild_id,day,command_key) DO UPDATE SET total=bot_command_daily.total+1,failed=bot_command_daily.failed+EXCLUDED.failed`,
+    [guildId, commandKey, success ? 0 : 1]);
+  } catch (error) { console.error('Could not record bot command', error.message); }
+}
+
 async function registerGuildCommands(rest, applicationId, guildId, token) {
   try {
     await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: COMMAND_JSON });
@@ -118,8 +128,9 @@ export async function startDiscordBot({ pool } = {}) {
     };
     try {
       await interaction.reply({ content: replies[subcommand] || replies.help, ephemeral: true });
+      void recordCommand(interaction.guildId, subcommand, true);
       if (settings.log_channel_id) { const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null); if (channel?.guildId === interaction.guildId && channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {}); }
-    } catch (error) { console.error("Discord interaction reply failed", error); }
+    } catch (error) { void recordCommand(interaction.guildId, subcommand, false); console.error("Discord interaction reply failed", error); }
   });
   client.on("error", (error) => {
     console.error("Discord client error", error);
