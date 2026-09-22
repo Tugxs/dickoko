@@ -207,37 +207,49 @@ async function bots() {
 }
 async function assistant() {
   const guild = state.guild, epoch = state.epoch;
-  $('#workspace').innerHTML = head('AI ديسكوكو', 'اطلب اقتراحًا لتنظيم سيرفرك، وراجع أي تغيير قبل تطبيقه.') + connectionNotice() + `<div class="assistant-layout"><section class="panel"><div class="panel-head"><h3>تحدث مع AI ديسكوكو</h3><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div class="panel-body"><div class="preview"><b>✦ AI ديسكوكو</b><div class="message">أهلًا! صف لي ما تحتاجه في سيرفرك، وسأقترح خطوات واضحة. لن أعدّل Discord دون مراجعتك.</div></div><form id="assistantForm" class="form-grid"><label for="assistantPrompt">وش تبي تضبط في سيرفرك؟</label><textarea id="assistantPrompt" rows="4" maxlength="1500" placeholder="مثال: رتب لي رومات سيرفر ألعاب، مع قسم للدعم والصوتيات"></textarea><button class="btn primary" type="submit">أرسل الطلب</button></form><div id="assistantReply" role="status" aria-live="polite"></div></div></section>${panel('بعد الرد', `<div class="panel-body"><p>طبّق ما يناسبك من القنوات والرتب عبر مساحة المراجعة. لا تُرسل أي تغييرات إلى Discord تلقائيًا.</p><div class="actions">${action('القنوات والرتب', 'builder', 'primary')}${action('إعداد الأوامر', 'commands')}${action('بوتاتي', 'bots')}</div></div>`)}</div>`;
-  const reply = $('#assistantReply');
-  let available = false;
-  try {
-    const status = await api('/api/ai/status');
-    if (guild !== state.guild || epoch !== state.epoch || screen() !== 'assistant') return;
-    available = status.available && status.planEnabled;
-    $('#aiStatus').className = `badge ${status.available ? 'good' : 'warn'}`;
-    $('#aiStatus').textContent = status.available ? `متصل · ${status.model || 'النموذج المحلي'}` : 'الجهاز المحلي غير متصل';
-    if (!status.planEnabled) reply.textContent = 'AI ديسكوكو متاح من باقة Starter. طوّر باقتك لتستخدمه.';
-    else if (!status.available) reply.textContent = 'شغّل AI ديسكوكو على جهاز التشغيل أولًا، ثم أعد فتح هذه الصفحة.';
-  } catch (error) { reply.textContent = error.message; }
+  const active = () => guild === state.guild && epoch === state.epoch && screen() === 'assistant';
+  const storageKey = `diskoko-ai-conversation:${guild}`;
+  let selected = sessionStorage.getItem(storageKey) || '';
+  let conversations = [], messages = [], available = false, planEnabled = true, busy = false;
+  $('#workspace').innerHTML = head('AI ديسكوكو', 'مساعدك لتنظيم السيرفر. محادثاتك محفوظة لهذا السيرفر ويمكنك الرجوع إليها.') + connectionNotice() + `<div class="ai-chat-layout"><aside class="panel ai-chat-sidebar"><div class="panel-head"><h3>المحادثات</h3><button id="aiNew" class="btn small primary" type="button">+ جديدة</button></div><div id="aiConversations" class="ai-conversations"></div></aside><section class="panel ai-chat-main"><div class="panel-head"><div><h3 id="aiChatTitle">محادثة جديدة</h3><small>AI ديسكوكو يقدم اقتراحات؛ التغييرات تحتاج مراجعتك.</small></div><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div><div id="aiNotice" class="ai-notice" role="status"></div><form id="assistantForm" class="ai-composer"><label for="assistantPrompt" class="sr-only">رسالتك إلى AI ديسكوكو</label><textarea id="assistantPrompt" rows="2" maxlength="1500" placeholder="اكتب ما تحتاجه لسيرفرك…"></textarea><button id="aiSend" class="btn primary" type="submit">إرسال</button></form></section></div>`;
+  const list = $('#aiConversations'), thread = $('#aiMessages'), notice = $('#aiNotice'), input = $('#assistantPrompt');
+  const renderList = () => {
+    list.innerHTML = conversations.length ? conversations.map(item => `<button type="button" class="ai-conversation ${item.id === selected ? 'active' : ''}" data-ai-conversation="${esc(item.id)}"><b>${esc(item.title)}</b><small>${new Date(item.updated_at).toLocaleDateString('ar-SA')}</small></button>`).join('') : '<p class="ai-empty-list">محادثاتك ستظهر هنا بعد أول رسالة.</p>';
+    list.querySelectorAll('[data-ai-conversation]').forEach(button => button.onclick = () => { selected = button.dataset.aiConversation; sessionStorage.setItem(storageKey, selected); renderList(); loadMessages().catch(error => { notice.textContent = error.message; }); });
+  };
+  const renderMessages = () => {
+    $('#aiChatTitle').textContent = conversations.find(item => item.id === selected)?.title || 'محادثة جديدة';
+    thread.innerHTML = messages.length ? messages.map(item => `<div class="ai-turn"><div class="ai-bubble user"><b>أنت</b><div>${esc(item.prompt)}</div></div><div class="ai-bubble assistant"><b>AI ديسكوكو</b><div>${esc(item.status === 'completed' ? item.answer || '' : item.status === 'failed' ? item.error || 'تعذر توليد الرد. حاول مجددًا.' : 'جارٍ تجهيز الرد…')}</div></div></div>`).join('') : `<div class="ai-welcome"><span>✦</span><h2>أهلًا، أنا AI ديسكوكو</h2><p>قل لي وش تحتاج في سيرفرك، وبساعدك بخطوات واضحة. تقدر تتابع معي في نفس المحادثة، وسأفهم سياق كلامنا.</p><div class="ai-suggestions"><button type="button" data-ai-suggestion="اقترح لي ترتيب رومات لسيرفر ألعاب">رتب لي الرومات</button><button type="button" data-ai-suggestion="اقترح رتب وصلاحيات مناسبة لمجتمعي">نظّم الرتب</button></div></div>`;
+    thread.querySelectorAll('[data-ai-suggestion]').forEach(button => button.onclick = () => { input.value = button.dataset.aiSuggestion; input.focus(); });
+    thread.scrollTop = thread.scrollHeight;
+  };
+  const refreshList = async () => { const data = await api(`/api/ai/conversations?guildId=${encodeURIComponent(guild)}`); if (!active()) return; conversations = data.conversations || []; if (selected && !conversations.some(item => item.id === selected)) { selected = ''; sessionStorage.removeItem(storageKey); } renderList(); };
+  const loadMessages = async () => { if (!selected) { messages = []; renderMessages(); return; } const current = selected; const data = await api(`/api/ai/conversations/${encodeURIComponent(current)}/messages`); if (!active() || current !== selected) return; messages = data.messages || []; renderMessages(); const pending = messages.find(item => ['pending', 'processing'].includes(item.status)); if (pending) poll(pending.id, current); };
+  const poll = async (id, conversationId) => { for (let attempt = 0; attempt < 60 && active() && selected === conversationId; attempt++) { await new Promise(resolve => setTimeout(resolve, 3000)); if (!active() || selected !== conversationId) return; try { const { request } = await api(`/api/ai/requests/${id}`); if (['completed', 'failed'].includes(request.status)) { await loadMessages(); await refreshList(); return; } } catch (error) { notice.textContent = error.message; return; } } if (active()) notice.textContent = 'الرد ما زال قيد المعالجة. ستجده هنا عند العودة للمحادثة.'; };
+  $('#aiNew').onclick = () => { selected = ''; sessionStorage.removeItem(storageKey); messages = []; notice.textContent = ''; renderList(); renderMessages(); input.focus(); };
   $('#assistantForm').onsubmit = run(async event => {
     event.preventDefault();
-    if (!available) { toast('الذكاء المحلي غير متصل أو غير متاح لباقتك.'); return; }
-    const prompt = $('#assistantPrompt').value.trim();
-    if (!prompt) return;
-    const button = event.submitter; button.disabled = true;
+    if (busy) return;
+    if (!available) { toast(planEnabled ? 'الجهاز المحلي غير متصل حاليًا.' : 'طوّر باقتك لاستخدام AI ديسكوكو.'); return; }
+    const prompt = input.value.trim(); if (!prompt) return;
+    busy = true; $('#aiSend').disabled = true; notice.textContent = '';
     try {
-      const request = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, prompt }) });
-      reply.textContent = 'AI ديسكوكو يفكر في طلبك…';
-      for (let attempt = 0; attempt < 60; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        if (guild !== state.guild || epoch !== state.epoch || screen() !== 'assistant') return;
-        const { request: result } = await api(`/api/ai/requests/${request.id}`);
-        if (result.status === 'completed') { reply.textContent = result.answer; return; }
-        if (result.status === 'failed') throw Error(result.error || 'تعذر توليد الرد. حاول مجددًا.');
-      }
-      reply.textContent = 'الطلب ما زال قيد المعالجة. أعد فتح الصفحة بعد قليل.';
-    } finally { button.disabled = false; }
+      const result = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, conversationId: selected || undefined, prompt }) });
+      if (!active()) return;
+      selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = '';
+      await refreshList(); await loadMessages();
+    } finally { busy = false; if (active()) $('#aiSend').disabled = false; }
   });
+  input.onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#assistantForm').requestSubmit(); } };
+  try {
+    const [status] = await Promise.all([api('/api/ai/status'), refreshList()]); if (!active()) return;
+    planEnabled = status.planEnabled; available = status.available && planEnabled;
+    $('#aiStatus').className = `badge ${status.available ? 'good' : 'warn'}`;
+    $('#aiStatus').textContent = status.available ? 'متصل' : 'الجهاز المحلي غير متصل';
+    if (!planEnabled) notice.textContent = 'AI ديسكوكو متاح من باقة Starter. طوّر باقتك لتستخدمه.';
+    else if (!status.available) notice.textContent = 'يمكنك قراءة محادثاتك السابقة. لإرسال رسالة جديدة، شغّل AI ديسكوكو على جهاز التشغيل.';
+    await loadMessages();
+  } catch (error) { if (active()) notice.textContent = error.message; }
 }
 async function commands() {
   const guild = state.guild; const epoch = state.epoch;
