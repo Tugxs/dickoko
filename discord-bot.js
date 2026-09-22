@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
+import { handleInteractiveButton } from './lib/interactive-systems.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -156,6 +157,11 @@ export async function startDiscordBot({ pool } = {}) {
   client.on("guildCreate", async (guild) => { state.guilds = client.guilds.cache.size; const rest = new REST({ version: "10" }).setToken(token); if (await registerGuildCommands(rest, client.user.id, guild.id, token)) state.commands.registered += COMMAND_JSON.length; else state.commands.failed += COMMAND_JSON.length; });
   client.on("guildDelete", () => { state.guilds = client.guilds.cache.size; });
   client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isButton() && interaction.customId.startsWith('diskoko:')) {
+      try { await handleInteractiveButton(interaction, databasePool); }
+      catch (error) { console.error('Interactive button failed:', error); if (interaction.deferred || interaction.replied) await interaction.editReply('تعذر إكمال العملية الآن. حاول مرة أخرى.').catch(() => {}); else await interaction.reply({ content: 'تعذر إكمال العملية الآن.', ephemeral: true }).catch(() => {}); }
+      return;
+    }
     if (!interaction.isChatInputCommand() || interaction.commandName !== "diskoko") return;
     const subcommand = interaction.options.getSubcommand();
     const settings = await guildSettings(interaction.guildId);
@@ -197,4 +203,5 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 }
+
 

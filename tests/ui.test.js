@@ -38,7 +38,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   const response = url => {
     if (url === '/api/ai/status') return { available: true, planEnabled: true };
     if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: 'رسالة ترحيب', updated_at: '2026-09-22T00:00:00Z' }] };
-    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: 'أرسل ترحيبًا', answer: 'جهزت الرسالة للمراجعة.', status: 'completed', proposal: { operations: [{ resource_type: 'role', name: 'عضو جديد', action: 'create' }], message: { channel: 'الدردشة', content: 'أهلًا بالجميع!' } } }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: 'أرسل ترحيبًا', answer: 'جهزت الرسالة للمراجعة.', status: 'completed', proposal: { operations: [{ resource_type: 'role', name: 'عضو جديد', action: 'create' }], message: { channel: 'الدردشة', content: 'أهلًا بالجميع!' }, interactive: { kind: 'giveaway', prize: 'اشتراك', channel: 'الدردشة', durationMinutes: 60, winnerCount: 1 } } }] };
     return fixtureResponse(url);
   };
   const { dom, doc } = await page('assistant', response);
@@ -49,6 +49,10 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   assert.ok(doc.querySelector('#aiMessageImage'));
   assert.equal(doc.querySelector('#aiMessageChannel').value, 'c2');
   assert.equal(doc.querySelector('#aiMessageSend').disabled, true);
+  doc.querySelector('#aiMessageCancel').click();
+  doc.querySelector('[data-ai-interactive]').click();
+  assert.equal(doc.querySelector('#aiInteractiveChannel').value, 'c2');
+  assert.equal(doc.querySelector('#aiInteractiveLaunch').disabled, true);
   dom.window.close();
 });
 test('analytics opt-in is separate from viewing analytics', async () => {
@@ -155,4 +159,5 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
+
 

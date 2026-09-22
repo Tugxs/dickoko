@@ -21,3 +21,10 @@ test('AI proposal only permits reviewed creation and bounded messages', () => {
     message: { channel: 'general', content: 'مرحبًا في مجتمعنا!' },
   });
 });
+
+test('interactive proposals accept bounded giveaways and ticket panels', () => {
+  assert.deepEqual(normalizeAiProposal({ interactive: { kind: 'giveaway', prize: 'اشتراك شهر', channel: '#فعاليات', durationMinutes: 60, winnerCount: 2 } }), { operations: [], message: null, interactive: { kind: 'giveaway', prize: 'اشتراك شهر', channel: 'فعاليات', durationMinutes: 60, winnerCount: 2 } });
+  assert.equal(normalizeAiProposal({ interactive: { kind: 'giveaway', prize: 'جائزة', channel: 'عام', durationMinutes: 0, winnerCount: 2 } }), null);
+  assert.deepEqual(normalizeAiProposal({ interactive: { kind: 'tickets', title: 'الدعم', description: 'افتح تذكرة للمساعدة', channel: 'الدعم' } }), { operations: [], message: null, interactive: { kind: 'tickets', title: 'الدعم', description: 'افتح تذكرة للمساعدة', channel: 'الدعم' } });
+});
+
