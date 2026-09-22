@@ -205,22 +205,61 @@ async function bots() {
     $('#editBotForm').onsubmit = run(async event => { event.preventDefault(); const submit = event.submitter; submit.disabled = true; try { await api(`/api/custom-bots/${bot.id}`, { method: 'PUT', body: JSON.stringify({ name: $('#editBotName').value, description: $('#editBotDescription').value, commands: [...document.querySelectorAll('.custom-command:checked')].map(input => input.value) }) }); closeDialog(); await bots(); toast('تحدّث تصميم البوت.'); } finally { submit.disabled = false; } });
   });
 }
+async function prepareAiImage(file) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) throw Error('اختر صورة PNG أو JPG أو WebP أصغر من 10 ميجابايت.');
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1200 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+  for (const quality of [0.82, 0.68, 0.5]) {
+    const data = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+    if (data.length < 460000) return { mime: 'image/jpeg', base64: data };
+  }
+  throw Error('الصورة كبيرة جدًا بعد الضغط. اختر صورة أصغر.');
+}
 async function assistant() {
   const guild = state.guild, epoch = state.epoch;
   const active = () => guild === state.guild && epoch === state.epoch && screen() === 'assistant';
   const storageKey = `diskoko-ai-conversation:${guild}`;
   let selected = sessionStorage.getItem(storageKey) || '';
   let conversations = [], messages = [], available = false, planEnabled = true, busy = false;
-  $('#workspace').innerHTML = head('AI ديسكوكو', 'مساعدك لتنظيم السيرفر. محادثاتك محفوظة لهذا السيرفر ويمكنك الرجوع إليها.') + connectionNotice() + `<div class="ai-chat-layout"><aside class="panel ai-chat-sidebar"><div class="panel-head"><h3>المحادثات</h3><button id="aiNew" class="btn small primary" type="button">+ جديدة</button></div><div id="aiConversations" class="ai-conversations"></div></aside><section class="panel ai-chat-main"><div class="panel-head"><div><h3 id="aiChatTitle">محادثة جديدة</h3><small>AI ديسكوكو يقدم اقتراحات؛ التغييرات تحتاج مراجعتك.</small></div><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div><div id="aiNotice" class="ai-notice" role="status"></div><form id="assistantForm" class="ai-composer"><label for="assistantPrompt" class="sr-only">رسالتك إلى AI ديسكوكو</label><textarea id="assistantPrompt" rows="2" maxlength="1500" placeholder="اكتب ما تحتاجه لسيرفرك…"></textarea><button id="aiSend" class="btn primary" type="submit">إرسال</button></form></section></div>`;
+  $('#workspace').innerHTML = head('AI ديسكوكو', 'مساعدك لتنظيم السيرفر. محادثاتك محفوظة لهذا السيرفر ويمكنك الرجوع إليها.') + connectionNotice() + `<div class="ai-chat-layout"><aside class="panel ai-chat-sidebar"><div class="panel-head"><h3>المحادثات</h3><button id="aiNew" class="btn small primary" type="button">+ جديدة</button></div><div id="aiConversations" class="ai-conversations"></div></aside><section class="panel ai-chat-main"><div class="panel-head"><div><h3 id="aiChatTitle">محادثة جديدة</h3><small>التغييرات على Discord تظهر للمراجعة قبل تطبيقها.</small></div><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div><div id="aiNotice" class="ai-notice" role="status"></div><form id="assistantForm" class="ai-composer"><label for="assistantPrompt" class="sr-only">رسالتك إلى AI ديسكوكو</label><textarea id="assistantPrompt" rows="2" maxlength="1500" placeholder="اكتب ما تحتاجه لسيرفرك…"></textarea><button id="aiVoice" class="btn secondary" type="button" aria-label="إملاء صوتي" title="تكلم وسيظهر كلامك نصًا قبل الإرسال">🎙</button><button id="aiSend" class="btn primary" type="submit">إرسال</button></form></section></div>`;
   const list = $('#aiConversations'), thread = $('#aiMessages'), notice = $('#aiNotice'), input = $('#assistantPrompt');
+  const renderProposal = item => {
+    const proposal = item.status === 'completed' ? item.proposal : null;
+    if (!proposal) return '';
+    const operations = proposal.operations || [];
+    return `<div class="ai-action-card"><b>خطة قابلة للتنفيذ</b>${operations.length ? `<p>${operations.map(op => `${op.resource_type === 'role' ? 'رتبة' : op.resource_type === 'category' ? 'تصنيف' : 'قناة'}: ${esc(op.name)}`).join(' · ')}</p><button class="btn primary small" type="button" data-ai-plan="${esc(item.id)}">مراجعة وتطبيق على Discord</button>` : ''}${proposal.message ? `<p>رسالة إلى #${esc(proposal.message.channel)}: ${esc(proposal.message.content)}</p>${item.sent_message_id ? `<a class="btn small secondary" href="https://discord.com/channels/${encodeURIComponent(guild)}/${encodeURIComponent(item.sent_channel_id)}/${encodeURIComponent(item.sent_message_id)}" target="_blank" rel="noopener noreferrer">تم الإرسال · عرض في Discord</a>` : `<button class="btn primary small" type="button" data-ai-message="${esc(item.id)}">مراجعة الرسالة وإرفاق صورة</button>`}` : ''}<small>لا يتغير السيرفر إلا بعد مراجعتك وضغط زر التنفيذ.</small></div>`;
+  };
   const renderList = () => {
     list.innerHTML = conversations.length ? conversations.map(item => `<button type="button" class="ai-conversation ${item.id === selected ? 'active' : ''}" data-ai-conversation="${esc(item.id)}"><b>${esc(item.title)}</b><small>${new Date(item.updated_at).toLocaleDateString('ar-SA')}</small></button>`).join('') : '<p class="ai-empty-list">محادثاتك ستظهر هنا بعد أول رسالة.</p>';
     list.querySelectorAll('[data-ai-conversation]').forEach(button => button.onclick = () => { selected = button.dataset.aiConversation; sessionStorage.setItem(storageKey, selected); renderList(); loadMessages().catch(error => { notice.textContent = error.message; }); });
   };
   const renderMessages = () => {
     $('#aiChatTitle').textContent = conversations.find(item => item.id === selected)?.title || 'محادثة جديدة';
-    thread.innerHTML = messages.length ? messages.map(item => `<div class="ai-turn"><div class="ai-bubble user"><b>أنت</b><div>${esc(item.prompt)}</div></div><div class="ai-bubble assistant"><b>AI ديسكوكو</b><div>${esc(item.status === 'completed' ? item.answer || '' : item.status === 'failed' ? item.error || 'تعذر توليد الرد. حاول مجددًا.' : 'جارٍ تجهيز الرد…')}</div></div></div>`).join('') : `<div class="ai-welcome"><span>✦</span><h2>أهلًا، أنا AI ديسكوكو</h2><p>قل لي وش تحتاج في سيرفرك، وبساعدك بخطوات واضحة. تقدر تتابع معي في نفس المحادثة، وسأفهم سياق كلامنا.</p><div class="ai-suggestions"><button type="button" data-ai-suggestion="اقترح لي ترتيب رومات لسيرفر ألعاب">رتب لي الرومات</button><button type="button" data-ai-suggestion="اقترح رتب وصلاحيات مناسبة لمجتمعي">نظّم الرتب</button></div></div>`;
+    thread.innerHTML = messages.length ? messages.map(item => `<div class="ai-turn"><div class="ai-bubble user"><b>أنت</b><div>${esc(item.prompt)}</div></div><div class="ai-bubble assistant"><b>AI ديسكوكو</b><div>${esc(item.status === 'completed' ? item.answer || '' : item.status === 'failed' ? item.error || 'تعذر توليد الرد. حاول مجددًا.' : 'جارٍ تجهيز الرد…')}</div></div>${renderProposal(item)}</div>`).join('') : `<div class="ai-welcome"><span>✦</span><h2>أهلًا، أنا AI ديسكوكو</h2><p>قل لي وش تحتاج في سيرفرك، وبساعدك بخطوات واضحة. تقدر تتابع معي في نفس المحادثة، وسأفهم سياق كلامنا.</p><div class="ai-suggestions"><button type="button" data-ai-suggestion="اقترح لي ترتيب رومات لسيرفر ألعاب">رتب لي الرومات</button><button type="button" data-ai-suggestion="اقترح رتب وصلاحيات مناسبة لمجتمعي">نظّم الرتب</button></div></div>`;
     thread.querySelectorAll('[data-ai-suggestion]').forEach(button => button.onclick = () => { input.value = button.dataset.aiSuggestion; input.focus(); });
+    thread.querySelectorAll('[data-ai-plan]').forEach(button => button.onclick = run(async () => {
+      const item = messages.find(entry => entry.id === button.dataset.aiPlan);
+      if (!item?.proposal?.operations?.length) return;
+      const created = await api('/api/change-sets', { method: 'POST', body: JSON.stringify({ guildId: guild, operations: item.proposal.operations }) });
+      await showPlan(created.changeSet.id);
+    }));
+    thread.querySelectorAll('[data-ai-message]').forEach(button => button.onclick = () => {
+      const item = messages.find(entry => entry.id === button.dataset.aiMessage);
+      if (!item?.proposal?.message) return;
+      const textChannels = (state.data.channels || []).filter(channel => [0, 5].includes(channel.type));
+      modal('مراجعة الرسالة قبل إرسالها', `<label>قناة النشر<select id="aiMessageChannel"><option value="">اختر قناة نصية</option>${textChannels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === item.proposal.message.channel.toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}</select></label><label>نص الرسالة<textarea id="aiMessageContent" rows="5" maxlength="1800">${esc(item.proposal.message.content)}</textarea></label><label>صورة مرفقة (اختياري)<input id="aiMessageImage" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="form-note">ستُنشر مرة واحدة بواسطة بوت ديسكوكو، ولن تُرسل إشارات جماعية.</p><label class="check-row"><input id="aiMessageConfirmed" type="checkbox">راجعت الرسالة والقناة وأوافق على نشرها.</label>`, '<button class="btn secondary" id="aiMessageCancel">إلغاء</button><button class="btn primary" id="aiMessageSend" disabled>إرسال إلى Discord</button>');
+      $('#aiMessageCancel').onclick = closeDialog;
+      $('#aiMessageConfirmed').onchange = event => { $('#aiMessageSend').disabled = !event.target.checked; };
+      $('#aiMessageSend').onclick = async event => { event.currentTarget.disabled = true; try {
+        if (!$('#aiMessageChannel').value) throw Error('اختر القناة التي ستُنشر فيها الرسالة.');
+        const file = $('#aiMessageImage').files[0];
+        const image = file ? await prepareAiImage(file) : undefined;
+        await api(`/api/ai/requests/${encodeURIComponent(item.id)}/send-message`, { method: 'POST', body: JSON.stringify({ confirmed: true, channelId: $('#aiMessageChannel').value, content: $('#aiMessageContent').value, image }) });
+        closeDialog(); await loadMessages(); toast('نُشرت الرسالة في Discord.');
+      } catch (error) { modalError(error); $('#aiMessageSend').disabled = false; } };
+    });
     thread.scrollTop = thread.scrollHeight;
   };
   const refreshList = async () => { const data = await api(`/api/ai/conversations?guildId=${encodeURIComponent(guild)}`); if (!active()) return; conversations = data.conversations || []; if (selected && !conversations.some(item => item.id === selected)) { selected = ''; sessionStorage.removeItem(storageKey); } renderList(); };
@@ -243,6 +282,19 @@ async function assistant() {
     } finally { busy = false; if (active()) $('#aiSend').disabled = false; }
   });
   input.onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#assistantForm').requestSubmit(); } };
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  $('#aiVoice').onclick = () => {
+    if (!Recognition) { toast('الإملاء الصوتي غير مدعوم في هذا المتصفح. افتح الصفحة في Chrome أو Edge.'); return; }
+    if (recognition) { recognition.stop(); return; }
+    recognition = new Recognition(); recognition.lang = 'ar-SA'; recognition.interimResults = true; recognition.continuous = false;
+    const before = input.value.trim();
+    recognition.onstart = () => { $('#aiVoice').textContent = '■ إيقاف'; $('#aiVoice').classList.add('recording'); notice.textContent = 'تكلّم الآن… سيظهر النص قبل الإرسال. قد يستخدم المتصفح خدمته للتعرف على الصوت.'; };
+    recognition.onresult = event => { const spoken = [...event.results].map(result => result[0].transcript).join(' ').trim(); input.value = [before, spoken].filter(Boolean).join(' '); };
+    recognition.onerror = event => { notice.textContent = event.error === 'not-allowed' ? 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مجددًا.' : 'تعذر تحويل الصوت إلى نص. حاول مجددًا أو اكتب رسالتك.'; };
+    recognition.onend = () => { recognition = null; $('#aiVoice').textContent = '🎙'; $('#aiVoice').classList.remove('recording'); if (notice.textContent.startsWith('تكلّم')) notice.textContent = 'راجع النص ثم اضغط إرسال.'; input.focus(); };
+    try { recognition.start(); } catch { recognition = null; toast('تعذر بدء التسجيل الصوتي.'); }
+  };
   try {
     const status = await api('/api/ai/status'); if (!active()) return;
     planEnabled = status.planEnabled; available = status.available && planEnabled;

@@ -33,6 +33,24 @@ test('bot pages separate designs, live commands and AI connection state', async 
   const commandPage = await page('commands'); assert.equal(commandPage.doc.querySelectorAll('.command-check').length, 3); assert.equal(commandPage.doc.querySelector('#botEnabled').checked, true); commandPage.dom.window.close();
   const assistantPage = await page('assistant'); assert.match(assistantPage.doc.body.textContent, /الجهاز المحلي غير متصل/); assert.match(assistantPage.doc.body.textContent, /AI ديسكوكو/); assistantPage.dom.window.close();
 });
+test('AI chat exposes reviewed Discord actions, image attachment and voice transcription control', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: 'رسالة ترحيب', updated_at: '2026-09-22T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: 'أرسل ترحيبًا', answer: 'جهزت الرسالة للمراجعة.', status: 'completed', proposal: { operations: [{ resource_type: 'role', name: 'عضو جديد', action: 'create' }], message: { channel: 'الدردشة', content: 'أهلًا بالجميع!' } } }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc } = await page('assistant', response);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  assert.ok(doc.querySelector('#aiVoice'));
+  assert.ok(doc.querySelector('[data-ai-plan]'));
+  doc.querySelector('[data-ai-message]').click();
+  assert.ok(doc.querySelector('#aiMessageImage'));
+  assert.equal(doc.querySelector('#aiMessageChannel').value, 'c2');
+  assert.equal(doc.querySelector('#aiMessageSend').disabled, true);
+  dom.window.close();
+});
 test('analytics opt-in is separate from viewing analytics', async () => {
   const { dom, doc, requests } = await page('analytics'); assert.ok(doc.querySelector('#enableAnalytics')); assert.match(doc.body.textContent, /دون تخزين محتوى الرسائل/); assert.equal(requests.filter(req => req.options.method === 'PUT').length, 0); dom.window.close();
 });
