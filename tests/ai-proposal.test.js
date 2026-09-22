@@ -34,3 +34,8 @@ test('poll proposals require distinct bounded choices', () => {
   assert.equal(normalizeAiProposal({ interactive: { kind: 'poll', question: 'متى نجتمع؟', channel: 'العام', options: ['الجمعة'] } }), null);
 });
 
+test('AI updates require an actual Discord resource ID and only safe fields', () => {
+  assert.deepEqual(normalizeAiProposal({ operations: [{ resource_type: 'channel', action: 'update', resource_id: '1036300782972186686', name: 'الأخبار', topic: 'آخر أخبار المجتمع', permissions: '8' }] }), { operations: [{ resource_type: 'channel', action: 'update', resource_id: '1036300782972186686', name: 'الأخبار', topic: 'آخر أخبار المجتمع' }], message: null });
+  assert.equal(normalizeAiProposal({ operations: [{ resource_type: 'channel', action: 'update', resource_id: 'not-real', name: 'الأخبار' }] }), null);
+});
+
