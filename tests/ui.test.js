@@ -43,6 +43,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   };
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
+  assert.ok(doc.querySelector('[data-ai-delete]'));
   assert.equal(doc.querySelectorAll('.ai-library-item').length, 100);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.ok(doc.querySelector('[data-ai-plan]'));
