@@ -217,6 +217,137 @@ async function prepareAiImage(file) {
   }
   throw Error('الصورة كبيرة جدًا بعد الضغط. اختر صورة أصغر.');
 }
+const aiSuggestionGroups = [
+  { name: 'الجيف آواي', mode: 'execute', prompts: [
+    ['جيف آواي سريع', 'جهز جيف آواي في #[القناة] لجائزة [الجائزة] لمدة [المدة بالدقائق] دقيقة، مع [عدد الفائزين] فائز. اعرض التفاصيل ثم أنتظر مني «يلا نفّذ».'],
+    ['جائزة اشتراك', 'جهز جيف آواي لجائزة اشتراك [المدة] في #[القناة]، ينتهي بعد [عدد الساعات] ساعة، وفائز واحد.'],
+    ['جائزة لأكثر من فائز', 'نظم جيف آواي في #[القناة] لجائزة [الجائزة]، لمدة [المدة] دقيقة، واختر [عدد الفائزين] فائزين.'],
+    ['صياغة إعلان الجيف آواي', 'اكتب إعلانًا واضحًا وحماسيًا لجيف آواي جائزته [الجائزة]، مدته [المدة]، وشروطه [الشروط]. لا تنشره قبل مراجعتي.', 'advice'],
+    ['مراجعة شروط المسابقة', 'راجع شروط هذا الجيف آواي واقترح صياغة عادلة ومفهومة للأعضاء: [الشروط].', 'advice'],
+    ['خطة جوائز شهرية', 'اقترح جدول جيف آواي شهريًا لمجتمع [نوع المجتمع] بميزانية [الميزانية]، مع أفكار جوائز مناسبة.', 'advice'],
+  ] },
+  { name: 'تذاكر الدعم', mode: 'execute', prompts: [
+    ['لوحة تذاكر الدعم', 'جهز لوحة تذاكر دعم في #[القناة] بعنوان [العنوان]، ووصفها [الوصف]. اعرض الخطة قبل النشر.'],
+    ['دعم العملاء', 'صمم نص لوحة دعم للعملاء في #[القناة]، بعنوان [اسم الخدمة]، واشرح متى يفتح العضو تذكرة.'],
+    ['قسم طلب المساعدة', 'جهز لوحة تذاكر لطلبات المساعدة في #[القناة]. اجعل العنوان واضحًا والوصف ودودًا ومختصرًا.'],
+    ['سياسة الرد على التذاكر', 'اكتب سياسة مختصرة لفريق الدعم: أولوية التذاكر، نبرة الرد، ومتى نصعد المشكلة.', 'advice'],
+    ['رد افتتاحي للتذكرة', 'اكتب ردًا افتتاحيًا محترمًا يظهر للعضو عند فتح تذكرة، ويطلب منه وصف المشكلة دون مشاركة بيانات حساسة.', 'advice'],
+    ['أسئلة الدعم الشائعة', 'رتب لي أسئلة وأجوبة شائعة عن [الخدمة] لتقليل التذاكر المتكررة.', 'advice'],
+  ] },
+  { name: 'القنوات', mode: 'execute', prompts: [
+    ['قناة نصية جديدة', 'أريد إنشاء قناة نصية باسم [الاسم] لغرض [الغرض]. اقترح وصفًا مناسبًا ثم اعرض خطة المراجعة عندما أقول «يلا نفّذ».'],
+    ['قناة صوتية', 'جهز قناة صوتية باسم [الاسم] لمجتمع [نوع المجتمع]، واعرض ما سيُنشأ قبل التنفيذ.'],
+    ['تصنيف للقنوات', 'اقترح تصنيفًا باسم [الاسم] ينظم قنوات [الغرض]، ثم جهزه للمراجعة.'],
+    ['هيكلة مجتمع ألعاب', 'اقترح هيكلة قنوات لسيرفر ألعاب فيه [عدد الأعضاء] عضوًا. ابدأ بالقنوات الأساسية فقط.', 'advice'],
+    ['هيكلة متجر', 'اقترح ترتيب قنوات لسيرفر متجر يبيع [المنتج]، من الترحيب حتى الدعم.', 'advice'],
+    ['تقليل ازدحام القنوات', 'هذه قنوات سيرفري الحالية. اقترح كيف أجعلها أبسط وأسهل للعضو الجديد دون حذف شيء تلقائيًا.', 'advice'],
+    ['وصف قناة', 'اكتب وصفًا واضحًا لقناة #[القناة] يشرح ما ينشر فيها وما لا ينشر.', 'advice'],
+    ['قناة إعلان', 'اقترح اسم قناة إعلانات مناسبًا لمجتمع [النوع] واكتب أول منشور تعريفي لها.', 'advice'],
+  ] },
+  { name: 'الرتب', mode: 'execute', prompts: [
+    ['رتبة جديدة', 'جهز رتبة باسم [اسم الرتبة] لفئة [الفئة]. اشرح الغرض منها ثم اعرض خطة المراجعة.'],
+    ['رتبة أعضاء', 'اقترح اسم رتبة للأعضاء الجدد ثم جهز إنشاءها فقط؛ لا تقل إنها توزع تلقائيًا.'],
+    ['رتبة فريق الدعم', 'جهز رتبة باسم [اسم الرتبة] لفريق الدعم، واشرح الصلاحيات التي ينبغي مراجعتها يدويًا.'],
+    ['سلم رتب المجتمع', 'اقترح سلم رتب بسيطًا لمجتمع [النوع] دون منح صلاحيات إدارية تلقائيًا.', 'advice'],
+    ['أسماء رتب إبداعية', 'اقترح 10 أسماء رتب متدرجة لمجتمع [النوع] مع وصف مختصر لكل رتبة.', 'advice'],
+    ['مراجعة الصلاحيات', 'اشرح كيف أراجع صلاحيات رتب السيرفر وأقلل الصلاحيات العالية دون تعطيل فريق الإدارة.', 'advice'],
+  ] },
+  { name: 'الرسائل', mode: 'execute', prompts: [
+    ['إعلان مع صورة', 'اكتب رسالة أنيقة عن [الموضوع] للنشر في #[القناة]. سأرفق صورة مع الرسالة؛ اعرض النص للمراجعة قبل النشر.'],
+    ['رسالة ترحيب واحدة', 'اكتب رسالة ترحيب واحدة للأعضاء في #[القناة] بنبرة [رسمية أو ودودة]، ثم جهزها للمراجعة.'],
+    ['تحديث مهم', 'صغ إعلانًا واضحًا عن [التحديث] لأعضاء السيرفر في #[القناة] مع أهم ثلاث نقاط.'],
+    ['افتتاح سيرفر', 'اكتب منشور افتتاح لسيرفر [الاسم] في #[القناة] يشرح الفكرة ويدعو الأعضاء للمشاركة.'],
+    ['تذكير بالقوانين', 'اكتب تذكيرًا لطيفًا بالقوانين التالية لنشره في #[القناة]: [القوانين].'],
+    ['رسالة شكر', 'اكتب رسالة شكر لأعضاء مجتمع [الاسم] بمناسبة [الحدث]، دون مبالغة.'],
+    ['إعلان فعالية', 'صغ إعلان فعالية [الاسم] بتاريخ [الوقت] في #[القناة] مع طريقة المشاركة.'],
+    ['إعلان صيانة', 'اكتب إعلان صيانة للخدمة [الاسم] في #[القناة]، يبدأ [الوقت] وينتهي [الوقت].'],
+  ] },
+  { name: 'إدارة المجتمع', mode: 'advice', prompts: [
+    ['رحلة العضو الجديد', 'صمم رحلة بسيطة للعضو الجديد من لحظة دخوله حتى أول مشاركة مفيدة.'],
+    ['تنشيط الأعضاء', 'اقترح 10 أفكار عملية لتنشيط أعضاء سيرفر [نوع المجتمع] دون إزعاجهم بالمنشن.'],
+    ['تقويم فعاليات', 'ابن لي تقويم فعاليات لأربعة أسابيع لمجتمع [النوع] مع هدف كل فعالية.'],
+    ['قوانين مختصرة', 'اكتب قوانين سيرفر مختصرة وواضحة تناسب مجتمع [النوع].'],
+    ['إرشادات المشرفين', 'ضع دليلًا عمليًا للمشرفين للتعامل مع الخلافات والبلاغات باحترام.'],
+    ['استطلاع رأي', 'صغ سؤال استطلاع مع خيارات لمعرفة رأي الأعضاء في [الموضوع].'],
+    ['برنامج سفراء', 'اقترح برنامج سفراء أو مساهمين لمجتمع [النوع] مع معايير اختيار واضحة.'],
+    ['قياس نجاح المجتمع', 'اقترح مؤشرات أسبوعية مفيدة لمجتمع [النوع] وكيف أقرأها دون الاعتماد على عدد الرسائل فقط.'],
+  ] },
+  { name: 'البوتات والأوامر', mode: 'advice', prompts: [
+    ['أوامر مفيدة', 'اقترح أوامر بوت أساسية تناسب سيرفر [النوع]، وبيّن ما يتطلب برمجة قبل تفعيله.'],
+    ['بوت موسيقى', 'صمم تجربة بوت موسيقى لسيرفري: الأوامر، الصلاحيات، والقيود اللازمة قبل التشغيل.'],
+    ['بوت ألعاب', 'اقترح ثلاث ألعاب بسيطة يمكن تقديمها داخل Discord واشرح تجربة العضو.'],
+    ['تقليل تداخل البوتات', 'ساعدني أراجع البوتات الموجودة وأوزع المسؤوليات بينها لتجنب الأوامر المكررة.'],
+    ['أمان البوتات', 'اعطني قائمة مراجعة لصلاحيات البوتات المثبتة في السيرفر.'],
+    ['تصميم بوت خاص', 'ساعدني أصمم بوت باسم [الاسم] لمهمة [المهمة]، وحدد ما هو جاهز الآن وما يحتاج تطويرًا.'],
+  ] },
+  { name: 'المحتوى والهوية', mode: 'advice', prompts: [
+    ['وصف السيرفر', 'اكتب وصفًا جذابًا وصادقًا لسيرفر [الاسم] المهتم بـ[المجال].'],
+    ['شعار لفظي', 'اقترح 10 شعارات قصيرة لمجتمع [الاسم] تعكس [القيمة].'],
+    ['أسلوب الرسائل', 'صمم أسلوب كتابة موحدًا لإعلانات سيرفر [الاسم]: النبرة، الطول، والتنسيق.'],
+    ['قالب إعلان', 'اكتب قالب إعلان قابل للتعبئة للفعاليات الأسبوعية.'],
+    ['تعريف الرتب', 'اكتب وصفًا قصيرًا لكل رتبة في هذا السلم: [الرتب].'],
+    ['مراجعة نص', 'حسّن النص التالي ليكون واضحًا وودودًا لأعضاء Discord دون تغيير معناه: [النص].'],
+  ] },
+  { name: 'الأمان والإشراف', mode: 'advice', prompts: [
+    ['خطة مكافحة السبام', 'ضع خطة عملية لتقليل السبام في سيرفر [النوع] تشمل الإعدادات والتعامل البشري.'],
+    ['التعامل مع بلاغ', 'اقترح طريقة عادلة للتعامل مع بلاغ عن [نوع المشكلة] دون كشف هوية المبلّغ.'],
+    ['صلاحيات آمنة', 'راجع معي الحد الأدنى المناسب لصلاحيات المشرفين والمساعدين.'],
+    ['سياسة الروابط', 'اكتب سياسة مختصرة لنشر الروابط والإعلانات في المجتمع.'],
+    ['خطة طوارئ', 'ضع خطوات عملية إذا تعرض السيرفر لموجة سبام أو حسابات مخترقة.'],
+    ['رسالة تحذير', 'اكتب رسالة تحذير مهذبة وواضحة لعضو خالف قاعدة [القاعدة].'],
+  ] },
+  { name: 'الترحيب والانضمام', mode: 'advice', prompts: [
+    ['رسالة دخول أولى', 'اكتب رسالة دخول أولى لعضو جديد في مجتمع [النوع]، واضحة وقصيرة.'],
+    ['خطوات البداية', 'رتب ثلاث خطوات بسيطة للعضو الجديد بعد دخول سيرفر [الاسم].'],
+    ['تعريف القنوات', 'اكتب دليلًا سريعًا للقنوات التالية مع وظيفة كل قناة: [القنوات].'],
+    ['رسالة اختيار الاهتمامات', 'صغ رسالة تدعو العضو لتحديد اهتماماته من الخيارات التالية: [الخيارات].'],
+    ['تعريف فريق الإدارة', 'اكتب رسالة تعريف ودودة لفريق الإدارة وأدوارهم: [الأسماء والأدوار].'],
+    ['سؤال تعارف', 'اقترح سؤال تعارف بسيطًا يشجع الأعضاء الجدد على المشاركة.'],
+    ['دليل أول مشاركة', 'اكتب دليلًا قصيرًا يساعد العضو على كتابة أول مشاركة مفيدة في مجتمع [النوع].'],
+    ['تحسين الترحيب', 'راجع رسالة الترحيب الحالية وحسن وضوحها ونبرتها: [النص].'],
+  ] },
+  { name: 'الفعاليات', mode: 'advice', prompts: [
+    ['مسابقة أسئلة', 'صمم مسابقة أسئلة لمجتمع [النوع] مع قواعد المشاركة و10 أسئلة مناسبة.'],
+    ['ليلة ألعاب', 'خطط لليلة ألعاب مدتها [المدة] لمجتمع [النوع] مع جدول واضح.'],
+    ['تحدي أسبوعي', 'اقترح تحديًا أسبوعيًا منخفض التكلفة يناسب أعضاء مجتمع [النوع].'],
+    ['فعالية صوتية', 'صمم فعالية صوتية في Discord عن [الموضوع] مع جدول وفقرات وأسئلة.'],
+    ['نص دعوة فعالية', 'اكتب دعوة مختصرة لفعالية [الاسم] في [الوقت] مع سبب جذاب للمشاركة.'],
+    ['قواعد الفعالية', 'اكتب قواعد عادلة وواضحة لفعالية [الاسم]، تشمل التسجيل والنتائج.'],
+    ['تقييم فعالية', 'جهز استبيانًا قصيرًا لتقييم فعالية [الاسم] بعد انتهائها.'],
+    ['تقرير الفعالية', 'اكتب قالب تقرير بعد فعالية يتضمن الحضور وما نجح وما يحتاج تحسينًا.'],
+  ] },
+  { name: 'التحليلات والتحسين', mode: 'advice', prompts: [
+    ['قراءة النشاط', 'ساعدني أفهم أرقام نشاط السيرفر التي سأرسلها، وحدد ثلاثة إجراءات عملية.'],
+    ['تفسير هدوء القنوات', 'اقترح أسبابًا محتملة لهدوء قناة [الاسم] وكيف أختبرها دون افتراضات قاطعة.'],
+    ['مقارنة الأسابيع', 'اعمل لي قالب مقارنة أسبوعية للنشاط: الرسائل، المشاركون، والفعاليات.'],
+    ['مؤشرات الدعم', 'اقترح مؤشرات بسيطة لقياس جودة تذاكر الدعم ووقت الاستجابة.'],
+    ['قياس الانضمام', 'صمم طريقة لقياس تجربة العضو الجديد خلال أول سبعة أيام.'],
+    ['تقرير شهري', 'اكتب قالب تقرير شهري لصاحب سيرفر Discord مع خلاصة وتوصيات.'],
+    ['أهداف نمو واقعية', 'ساعدني أحدد أهداف نمو واقعية لمجتمع فيه [عدد الأعضاء] عضوًا.'],
+    ['تحليل ملاحظات', 'صنف ملاحظات الأعضاء التالية إلى مشكلات وفرص وخطوات عمل: [الملاحظات].'],
+  ] },
+  { name: 'التواصل والإعلانات', mode: 'advice', prompts: [
+    ['رسالة اعتذار', 'اكتب اعتذارًا واضحًا للأعضاء عن [المشكلة] مع إجراء التصحيح المتوقع.'],
+    ['رد على اعتراض', 'صغ ردًا مهنيًا على اعتراض عضو بخصوص [الموضوع] دون دفاعية.'],
+    ['إعلان تغيير القوانين', 'اكتب إعلانًا عن تغيير قاعدة [القاعدة] وسبب التغيير وتاريخ سريانها.'],
+    ['رسالة غياب', 'اكتب رسالة تخبر الأعضاء بغياب فريق الإدارة من [الوقت] إلى [الوقت] وكيف يطلبون المساعدة.'],
+    ['استقبال اقتراحات', 'صغ منشورًا يدعو الأعضاء لتقديم اقتراحات قابلة للتنفيذ للسيرفر.'],
+    ['توضيح سوء فهم', 'اكتب توضيحًا هادئًا لسوء فهم حول [الموضوع] مع الخطوة التالية.'],
+    ['إعلان شراكة', 'اكتب إعلان شراكة مع [الجهة] يشرح فائدتها للأعضاء دون مبالغة.'],
+    ['تلخيص نقاش', 'لخص النقاش التالي إلى قرارات ونقاط مفتوحة ومسؤوليات: [النقاش].'],
+  ] },
+  { name: 'التخطيط والتشغيل', mode: 'advice', prompts: [
+    ['خطة إطلاق', 'ابن خطة إطلاق لسيرفر [النوع] خلال أسبوعين مع مهام يومية مختصرة.'],
+    ['توزيع مهام الفريق', 'اقترح توزيع مهام لفريق إدارة من [العدد] أشخاص في مجتمع [النوع].'],
+    ['قائمة مراجعة يومية', 'جهز قائمة مراجعة يومية للمشرفين لا تتجاوز 10 دقائق.'],
+    ['قائمة مراجعة أسبوعية', 'جهز قائمة مراجعة أسبوعية لصاحب السيرفر تشمل النشاط والدعم والأمان.'],
+    ['خطة إعادة تنشيط', 'اقترح خطة أربعة أسابيع لإعادة تنشيط سيرفر هادئ دون إعلانات مزعجة.'],
+    ['أولويات التطوير', 'رتب هذه الأفكار حسب أثرها وجهدها لمجتمعي: [الأفكار].'],
+    ['توثيق الإجراءات', 'اكتب إجراءً واضحًا لفريق الإدارة عند [الموقف] مع المسؤول والخطوة التالية.'],
+    ['مراجعة تجربة العضو', 'اعمل مراجعة لمسار العضو من الدعوة حتى طلب الدعم، وحدد نقاط التعقيد.'],
+  ] },
+];
+const aiPromptLibrary = aiSuggestionGroups.flatMap(group => group.prompts.map(([title, prompt, mode]) => ({ title, prompt, category: group.name, mode: mode || group.mode })));
 async function assistant() {
   const guild = state.guild, epoch = state.epoch;
   const active = () => guild === state.guild && epoch === state.epoch && screen() === 'assistant';
@@ -224,7 +355,27 @@ async function assistant() {
   let selected = sessionStorage.getItem(storageKey) || '';
   let conversations = [], messages = [], available = false, planEnabled = true, busy = false;
   $('#workspace').innerHTML = head('AI ديسكوكو', 'مساعدك لتنظيم السيرفر. محادثاتك محفوظة لهذا السيرفر ويمكنك الرجوع إليها.') + connectionNotice() + `<div class="ai-chat-layout"><aside class="panel ai-chat-sidebar"><div class="panel-head"><h3>المحادثات</h3><button id="aiNew" class="btn small primary" type="button">+ جديدة</button></div><div id="aiConversations" class="ai-conversations"></div></aside><section class="panel ai-chat-main"><div class="panel-head"><div><h3 id="aiChatTitle">محادثة جديدة</h3><small>التغييرات على Discord تظهر للمراجعة قبل تطبيقها.</small></div><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div><div id="aiNotice" class="ai-notice" role="status"></div><div id="aiRecording" class="ai-recording" role="status" hidden><span class="ai-recording-dot"></span><b>جارٍ تسجيل كلامك</b><span id="aiRecordingTime">00:00</span><button id="aiStopVoice" type="button" class="btn small secondary">إيقاف التسجيل</button></div><div id="aiAttachment" class="ai-attachment" hidden></div><form id="assistantForm" class="ai-composer"><label for="assistantPrompt" class="sr-only">رسالتك إلى AI ديسكوكو</label><textarea id="assistantPrompt" rows="2" maxlength="1500" placeholder="اكتب ما تحتاجه لسيرفرك…"></textarea><div class="ai-composer-tools"><button id="aiAttach" class="btn secondary" type="button" aria-label="إرفاق صورة أو ملف نصي">📎 <span>إرفاق</span></button><input id="aiFile" type="file" accept="image/png,image/jpeg,image/webp,.txt,text/plain" hidden><button id="aiVoice" class="btn secondary" type="button" aria-label="تسجيل صوت وتحويله إلى نص">🎙 <span>مايك</span></button><button id="aiSend" class="btn primary" type="submit">إرسال</button></div></form></section></div>`;
+  $('#workspace .ai-chat-layout').insertAdjacentHTML('beforeend', `<aside class="panel ai-library"><div class="panel-head"><div><h3>مكتبة AI ديسكوكو</h3><small>${fmt(aiPromptLibrary.length)} مهمة جاهزة للتخصيص</small></div></div><div class="ai-library-controls"><label for="aiLibrarySearch" class="sr-only">ابحث في الاقتراحات</label><input id="aiLibrarySearch" type="search" placeholder="ابحث عن مهمة…"><div id="aiLibraryCategories" class="ai-library-categories"></div></div><div id="aiLibraryList" class="ai-library-list"></div><p class="ai-library-note">المهام التنفيذية تمر بخطوة مراجعة وتأكيد. مهام الكتابة والتخطيط تعطيك ناتجًا داخل الدردشة.</p></aside>`);
+  $('#assistantForm').insertAdjacentHTML('afterbegin', '<div id="aiTemplateDraft" class="ai-template-draft" hidden></div>');
   const list = $('#aiConversations'), thread = $('#aiMessages'), notice = $('#aiNotice'), input = $('#assistantPrompt');
+  let libraryCategory = 'الكل', selectedTemplate = null;
+  const renderLibrary = () => {
+    $('#aiLibraryCategories').innerHTML = ['الكل', ...aiSuggestionGroups.map(group => group.name)].map(category => `<button type="button" class="${category === libraryCategory ? 'active' : ''}" data-ai-category="${esc(category)}">${esc(category)}</button>`).join('');
+    $('#aiLibraryCategories').querySelectorAll('[data-ai-category]').forEach(button => button.onclick = () => { libraryCategory = button.dataset.aiCategory; renderLibrary(); });
+    const query = $('#aiLibrarySearch').value.trim().toLocaleLowerCase('ar');
+    const matched = aiPromptLibrary.map((item, index) => ({ ...item, index })).filter(item => (libraryCategory === 'الكل' || item.category === libraryCategory) && (!query || `${item.title} ${item.category} ${item.prompt}`.toLocaleLowerCase('ar').includes(query)));
+    $('#aiLibraryList').innerHTML = matched.length ? matched.map(item => `<button type="button" class="ai-library-item" data-ai-template="${item.index}"><span>${item.mode === 'execute' ? '⚡ تنفيذ بعد المراجعة' : '✦ كتابة وتخطيط'}</span><b>${esc(item.title)}</b><small>${esc(item.prompt)}</small></button>`).join('') : '<p class="ai-library-empty">لا توجد نتائج. جرّب كلمة أخرى.</p>';
+    $('#aiLibraryList').querySelectorAll('[data-ai-template]').forEach(button => button.onclick = () => {
+      selectedTemplate = aiPromptLibrary[Number(button.dataset.aiTemplate)];
+      input.value = selectedTemplate.prompt;
+      $('#aiTemplateDraft').hidden = false;
+      $('#aiTemplateDraft').innerHTML = `<div><b>مسودة: ${esc(selectedTemplate.title)}</b><small>${selectedTemplate.mode === 'execute' ? 'ناقشها مع AI، ثم قل «يلا نفّذ» لتظهر بطاقة المراجعة.' : 'عدّل النص ثم أرسله ليجهز AI الناتج في الدردشة.'} استبدل ما بين [ ] بتفاصيلك.</small></div><button id="aiClearTemplate" type="button" class="btn small secondary">مسح المسودة</button>`;
+      $('#aiClearTemplate').onclick = () => { selectedTemplate = null; input.value = ''; $('#aiTemplateDraft').hidden = true; input.focus(); };
+      input.focus(); input.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    });
+  };
+  $('#aiLibrarySearch').oninput = renderLibrary;
+  renderLibrary();
   let attachedFile = null;
   let previewUrl = '';
   const showAttachment = () => { const bar = $('#aiAttachment'); if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = attachedFile?.type.startsWith('image/') ? URL.createObjectURL(attachedFile) : ''; bar.hidden = !attachedFile; bar.innerHTML = attachedFile ? `${previewUrl ? `<img src="${previewUrl}" alt="معاينة الصورة المرفقة">` : '📎'}<span>${esc(attachedFile.name)} · ${previewUrl ? 'ستظهر مع رسالتك ويمكن إرفاقها عند النشر في Discord. المساعد النصي لا يرى تفاصيلها.' : 'سيضاف محتواه إلى سؤالك'}</span><button id="aiRemoveFile" type="button" class="btn small secondary">إزالة</button>` : ''; if (attachedFile) $('#aiRemoveFile').onclick = () => { attachedFile = null; $('#aiFile').value = ''; showAttachment(); }; };
@@ -291,13 +442,14 @@ async function assistant() {
     if (busy) return;
     if (!available) { toast(planEnabled ? 'الجهاز المحلي غير متصل حاليًا.' : 'طوّر باقتك لاستخدام AI ديسكوكو.'); return; }
     let prompt = input.value.trim(); if (!prompt) return;
+    if (/\[[^\]]{2,60}\]/.test(prompt)) { toast('استبدل العبارات بين [ ] بتفاصيل طلبك قبل الإرسال.'); input.focus(); return; }
     if (attachedFile?.type === 'text/plain' || attachedFile?.name.toLowerCase().endsWith('.txt')) { const content = await attachedFile.text(); if (content.length > 800) { toast('الملف النصي طويل. الحد 800 حرف.'); return; } prompt = `${prompt}\n\nمحتوى الملف ${attachedFile.name}:\n${content}`; if (prompt.length > 1500) { toast('سؤالك مع الملف يتجاوز 1500 حرف. اختصر النص.'); return; } attachedFile = null; $('#aiFile').value = ''; showAttachment(); }
     busy = true; $('#aiSend').disabled = true; notice.textContent = '';
     try {
       const image = attachedFile?.type.startsWith('image/') ? await prepareAiImage(attachedFile) : undefined;
       const result = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, conversationId: selected || undefined, prompt, image }) });
       if (!active()) return;
-      selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = ''; attachedFile = null; $('#aiFile').value = ''; showAttachment();
+      selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = ''; selectedTemplate = null; $('#aiTemplateDraft').hidden = true; attachedFile = null; $('#aiFile').value = ''; showAttachment();
       messages.push({ id: result.id, prompt, status: 'pending', has_attachment: !!image }); renderMessages();
       try { await refreshList(); await loadMessages(); }
       catch (error) { notice.textContent = 'حُفظت رسالتك، لكن تعذر تحديث السجل الآن. أعد فتح المحادثة بعد قليل.'; poll(result.id, selected); }

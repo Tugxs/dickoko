@@ -43,6 +43,10 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   };
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
+  assert.equal(doc.querySelectorAll('.ai-library-item').length, 100);
+  doc.querySelector('[data-ai-template="0"]').click();
+  assert.match(doc.querySelector('#assistantPrompt').value, /جيف آواي/);
+  assert.equal(doc.querySelector('#aiTemplateDraft').hidden, false);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.ok(doc.querySelector('[data-ai-plan]'));
   doc.querySelector('[data-ai-message]').click();
