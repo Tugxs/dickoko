@@ -223,8 +223,12 @@ async function assistant() {
   const storageKey = `diskoko-ai-conversation:${guild}`;
   let selected = sessionStorage.getItem(storageKey) || '';
   let conversations = [], messages = [], available = false, planEnabled = true, busy = false;
-  $('#workspace').innerHTML = head('AI ديسكوكو', 'مساعدك لتنظيم السيرفر. محادثاتك محفوظة لهذا السيرفر ويمكنك الرجوع إليها.') + connectionNotice() + `<div class="ai-chat-layout"><aside class="panel ai-chat-sidebar"><div class="panel-head"><h3>المحادثات</h3><button id="aiNew" class="btn small primary" type="button">+ جديدة</button></div><div id="aiConversations" class="ai-conversations"></div></aside><section class="panel ai-chat-main"><div class="panel-head"><div><h3 id="aiChatTitle">محادثة جديدة</h3><small>التغييرات على Discord تظهر للمراجعة قبل تطبيقها.</small></div><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div><div id="aiNotice" class="ai-notice" role="status"></div><form id="assistantForm" class="ai-composer"><label for="assistantPrompt" class="sr-only">رسالتك إلى AI ديسكوكو</label><textarea id="assistantPrompt" rows="2" maxlength="1500" placeholder="اكتب ما تحتاجه لسيرفرك…"></textarea><button id="aiVoice" class="btn secondary" type="button" aria-label="إملاء صوتي" title="تكلم وسيظهر كلامك نصًا قبل الإرسال">🎙</button><button id="aiSend" class="btn primary" type="submit">إرسال</button></form></section></div>`;
+  $('#workspace').innerHTML = head('AI ديسكوكو', 'مساعدك لتنظيم السيرفر. محادثاتك محفوظة لهذا السيرفر ويمكنك الرجوع إليها.') + connectionNotice() + `<div class="ai-chat-layout"><aside class="panel ai-chat-sidebar"><div class="panel-head"><h3>المحادثات</h3><button id="aiNew" class="btn small primary" type="button">+ جديدة</button></div><div id="aiConversations" class="ai-conversations"></div></aside><section class="panel ai-chat-main"><div class="panel-head"><div><h3 id="aiChatTitle">محادثة جديدة</h3><small>التغييرات على Discord تظهر للمراجعة قبل تطبيقها.</small></div><span id="aiStatus" class="badge neutral">جارٍ التحقق…</span></div><div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div><div id="aiNotice" class="ai-notice" role="status"></div><div id="aiRecording" class="ai-recording" role="status" hidden><span class="ai-recording-dot"></span><b>جارٍ تسجيل كلامك</b><span id="aiRecordingTime">00:00</span><button id="aiStopVoice" type="button" class="btn small secondary">إيقاف التسجيل</button></div><div id="aiAttachment" class="ai-attachment" hidden></div><form id="assistantForm" class="ai-composer"><label for="assistantPrompt" class="sr-only">رسالتك إلى AI ديسكوكو</label><textarea id="assistantPrompt" rows="2" maxlength="1500" placeholder="اكتب ما تحتاجه لسيرفرك…"></textarea><div class="ai-composer-tools"><button id="aiAttach" class="btn secondary" type="button" aria-label="إرفاق صورة أو ملف نصي">📎 <span>إرفاق</span></button><input id="aiFile" type="file" accept="image/png,image/jpeg,image/webp,.txt,text/plain" hidden><button id="aiVoice" class="btn secondary" type="button" aria-label="تسجيل صوت وتحويله إلى نص">🎙 <span>مايك</span></button><button id="aiSend" class="btn primary" type="submit">إرسال</button></div></form></section></div>`;
   const list = $('#aiConversations'), thread = $('#aiMessages'), notice = $('#aiNotice'), input = $('#assistantPrompt');
+  let attachedFile = null;
+  const showAttachment = () => { const bar = $('#aiAttachment'); bar.hidden = !attachedFile; bar.innerHTML = attachedFile ? `<span>📎 ${esc(attachedFile.name)} · ${attachedFile.type.startsWith('image/') ? 'سترفق عند مراجعة رسالة Discord' : 'سيضاف محتواه إلى سؤالك'}</span><button id="aiRemoveFile" type="button" class="btn small secondary">إزالة</button>` : ''; if (attachedFile) $('#aiRemoveFile').onclick = () => { attachedFile = null; $('#aiFile').value = ''; showAttachment(); }; };
+  $('#aiAttach').onclick = () => $('#aiFile').click();
+  $('#aiFile').onchange = event => { const file = event.target.files[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { toast('الملف أكبر من 10 ميجابايت.'); event.target.value = ''; return; } attachedFile = file; showAttachment(); };
   const renderProposal = item => {
     const proposal = item.status === 'completed' ? item.proposal : null;
     if (!proposal) return '';
@@ -249,15 +253,15 @@ async function assistant() {
       const item = messages.find(entry => entry.id === button.dataset.aiMessage);
       if (!item?.proposal?.message) return;
       const textChannels = (state.data.channels || []).filter(channel => [0, 5].includes(channel.type));
-      modal('مراجعة الرسالة قبل إرسالها', `<label>قناة النشر<select id="aiMessageChannel"><option value="">اختر قناة نصية</option>${textChannels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === item.proposal.message.channel.toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}</select></label><label>نص الرسالة<textarea id="aiMessageContent" rows="5" maxlength="1800">${esc(item.proposal.message.content)}</textarea></label><label>صورة مرفقة (اختياري)<input id="aiMessageImage" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="form-note">ستُنشر مرة واحدة بواسطة بوت ديسكوكو، ولن تُرسل إشارات جماعية.</p><label class="check-row"><input id="aiMessageConfirmed" type="checkbox">راجعت الرسالة والقناة وأوافق على نشرها.</label>`, '<button class="btn secondary" id="aiMessageCancel">إلغاء</button><button class="btn primary" id="aiMessageSend" disabled>إرسال إلى Discord</button>');
+      modal('مراجعة الرسالة قبل إرسالها', `<label>قناة النشر<select id="aiMessageChannel"><option value="">اختر قناة نصية</option>${textChannels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === item.proposal.message.channel.toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}</select></label><label>نص الرسالة<textarea id="aiMessageContent" rows="5" maxlength="1800">${esc(item.proposal.message.content)}</textarea></label><label>صورة مرفقة (اختياري)<input id="aiMessageImage" type="file" accept="image/png,image/jpeg,image/webp"></label>${item.id === lastAttachmentRequestId && attachedFile?.type.startsWith('image/') ? `<p class="form-note">الصورة الجاهزة للإرفاق: ${esc(attachedFile.name)}. يمكنك اختيار صورة أخرى هنا.</p>` : ''}<p class="form-note">ستُنشر مرة واحدة بواسطة بوت ديسكوكو، ولن تُرسل إشارات جماعية.</p><label class="check-row"><input id="aiMessageConfirmed" type="checkbox">راجعت الرسالة والقناة وأوافق على نشرها.</label>`, '<button class="btn secondary" id="aiMessageCancel">إلغاء</button><button class="btn primary" id="aiMessageSend" disabled>إرسال إلى Discord</button>');
       $('#aiMessageCancel').onclick = closeDialog;
       $('#aiMessageConfirmed').onchange = event => { $('#aiMessageSend').disabled = !event.target.checked; };
       $('#aiMessageSend').onclick = async event => { event.currentTarget.disabled = true; try {
         if (!$('#aiMessageChannel').value) throw Error('اختر القناة التي ستُنشر فيها الرسالة.');
-        const file = $('#aiMessageImage').files[0];
+        const file = $('#aiMessageImage').files[0] || (item.id === lastAttachmentRequestId && attachedFile?.type.startsWith('image/') ? attachedFile : null);
         const image = file ? await prepareAiImage(file) : undefined;
         await api(`/api/ai/requests/${encodeURIComponent(item.id)}/send-message`, { method: 'POST', body: JSON.stringify({ confirmed: true, channelId: $('#aiMessageChannel').value, content: $('#aiMessageContent').value, image }) });
-        closeDialog(); await loadMessages(); toast('نُشرت الرسالة في Discord.');
+        closeDialog(); if (item.id === lastAttachmentRequestId) { attachedFile = null; lastAttachmentRequestId = ''; showAttachment(); } await loadMessages(); toast('نُشرت الرسالة في Discord.');
       } catch (error) { modalError(error); $('#aiMessageSend').disabled = false; } };
     });
     thread.scrollTop = thread.scrollHeight;
@@ -266,16 +270,18 @@ async function assistant() {
   const loadMessages = async () => { if (!selected) { messages = []; renderMessages(); return; } const current = selected; const data = await api(`/api/ai/conversations/${encodeURIComponent(current)}/messages`); if (!active() || current !== selected) return; messages = data.messages || []; renderMessages(); const pending = messages.find(item => ['pending', 'processing'].includes(item.status)); if (pending) poll(pending.id, current); };
   const poll = async (id, conversationId) => { for (let attempt = 0; attempt < 60 && active() && selected === conversationId; attempt++) { await new Promise(resolve => setTimeout(resolve, 3000)); if (!active() || selected !== conversationId) return; try { const { request } = await api(`/api/ai/requests/${id}`); if (['completed', 'failed'].includes(request.status)) { await loadMessages(); await refreshList(); return; } } catch (error) { notice.textContent = error.message; return; } } if (active()) notice.textContent = 'الرد ما زال قيد المعالجة. ستجده هنا عند العودة للمحادثة.'; };
   $('#aiNew').onclick = () => { selected = ''; sessionStorage.removeItem(storageKey); messages = []; notice.textContent = ''; renderList(); renderMessages(); input.focus(); };
+  let lastAttachmentRequestId = '';
   $('#assistantForm').onsubmit = run(async event => {
     event.preventDefault();
     if (busy) return;
     if (!available) { toast(planEnabled ? 'الجهاز المحلي غير متصل حاليًا.' : 'طوّر باقتك لاستخدام AI ديسكوكو.'); return; }
-    const prompt = input.value.trim(); if (!prompt) return;
+    let prompt = input.value.trim(); if (!prompt) return;
+    if (attachedFile?.type === 'text/plain' || attachedFile?.name.toLowerCase().endsWith('.txt')) { const content = await attachedFile.text(); if (content.length > 800) { toast('الملف النصي طويل. الحد 800 حرف.'); return; } prompt = `${prompt}\n\nمحتوى الملف ${attachedFile.name}:\n${content}`; if (prompt.length > 1500) { toast('سؤالك مع الملف يتجاوز 1500 حرف. اختصر النص.'); return; } attachedFile = null; $('#aiFile').value = ''; showAttachment(); }
     busy = true; $('#aiSend').disabled = true; notice.textContent = '';
     try {
       const result = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, conversationId: selected || undefined, prompt }) });
       if (!active()) return;
-      selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = '';
+      selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = ''; if (attachedFile?.type.startsWith('image/')) lastAttachmentRequestId = result.id;
       messages.push({ id: result.id, prompt, status: 'pending' }); renderMessages();
       try { await refreshList(); await loadMessages(); }
       catch (error) { notice.textContent = 'حُفظت رسالتك، لكن تعذر تحديث السجل الآن. أعد فتح المحادثة بعد قليل.'; poll(result.id, selected); }
@@ -283,16 +289,27 @@ async function assistant() {
   });
   input.onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#assistantForm').requestSubmit(); } };
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition = null;
-  $('#aiVoice').onclick = () => {
+  let recognition = null, recordingTimer = null, recordingStart = 0;
+  const endRecordingUi = () => { clearInterval(recordingTimer); $('#aiRecording').hidden = true; $('#aiVoice').classList.remove('recording'); };
+  $('#aiStopVoice').onclick = () => recognition?.stop();
+  $('#aiVoice').onclick = async () => {
     if (!Recognition) { toast('الإملاء الصوتي غير مدعوم في هذا المتصفح. افتح الصفحة في Chrome أو Edge.'); return; }
     if (recognition) { recognition.stop(); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { toast('الميكروفون غير متاح في هذا المتصفح.'); return; }
+    try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); }
+    catch { notice.textContent = 'اسمح باستخدام الميكروفون من نافذة المتصفح ثم حاول مجددًا.'; return; }
+    let devices = []; try { devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput'); } catch {}
+    modal('اختيار الميكروفون', `<p class="form-note">يستخدم تحويل الكلام إلى نص ميكروفون المتصفح الافتراضي. إذا عندك أكثر من جهاز، اختر الميكروفون الافتراضي من إعدادات المتصفح أو النظام قبل البدء.</p><div class="ai-device-list">${devices.map(device => `<div>🎙 ${esc(device.label || 'ميكروفون')}</div>`).join('') || '<div>الميكروفون الافتراضي</div>'}</div><p class="form-note">بعد السماح، سيظهر شريط التسجيل والكلام المكتوب قبل أن تضغط إرسال.</p>`, '<button id="aiVoiceCancel" class="btn secondary" type="button">إلغاء</button><button id="aiVoiceStart" class="btn primary" type="button">ابدأ التسجيل</button>');
+    $('#aiVoiceCancel').onclick = closeDialog;
+    $('#aiVoiceStart').onclick = () => { closeDialog(); startRecognition(); };
+  };
+  const startRecognition = () => {
     recognition = new Recognition(); recognition.lang = 'ar-SA'; recognition.interimResults = true; recognition.continuous = false;
     const before = input.value.trim();
-    recognition.onstart = () => { $('#aiVoice').textContent = '■ إيقاف'; $('#aiVoice').classList.add('recording'); notice.textContent = 'تكلّم الآن… سيظهر النص قبل الإرسال. قد يستخدم المتصفح خدمته للتعرف على الصوت.'; };
+    recognition.onstart = () => { $('#aiVoice').classList.add('recording'); $('#aiRecording').hidden = false; recordingStart = Date.now(); $('#aiRecordingTime').textContent = '00:00'; recordingTimer = setInterval(() => { const seconds = Math.floor((Date.now() - recordingStart) / 1000); $('#aiRecordingTime').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; }, 1000); notice.textContent = 'تكلّم الآن… سيظهر النص قبل الإرسال. قد يستخدم المتصفح خدمته للتعرف على الصوت.'; };
     recognition.onresult = event => { const spoken = [...event.results].map(result => result[0].transcript).join(' ').trim(); input.value = [before, spoken].filter(Boolean).join(' '); };
     recognition.onerror = event => { notice.textContent = event.error === 'not-allowed' ? 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مجددًا.' : 'تعذر تحويل الصوت إلى نص. حاول مجددًا أو اكتب رسالتك.'; };
-    recognition.onend = () => { recognition = null; $('#aiVoice').textContent = '🎙'; $('#aiVoice').classList.remove('recording'); if (notice.textContent.startsWith('تكلّم')) notice.textContent = 'راجع النص ثم اضغط إرسال.'; input.focus(); };
+    recognition.onend = () => { recognition = null; endRecordingUi(); if (notice.textContent.startsWith('تكلّم')) notice.textContent = 'راجع النص ثم اضغط إرسال.'; input.focus(); };
     try { recognition.start(); } catch { recognition = null; toast('تعذر بدء التسجيل الصوتي.'); }
   };
   try {
@@ -377,6 +394,7 @@ window.addEventListener('hashchange', () => { render(); $('#workspace').focus({ 
 window.addEventListener('focus', () => { if (state.awaitingInstall) { state.awaitingInstall = false; loadGuild(); } });
 $('#dialog').addEventListener('cancel', event => { if ($('#applyPlan')?.textContent === 'جارٍ التطبيق…') event.preventDefault(); });
 start();
+
 
 
 
