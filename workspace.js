@@ -237,18 +237,21 @@ async function assistant() {
       const result = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, conversationId: selected || undefined, prompt }) });
       if (!active()) return;
       selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = '';
-      await refreshList(); await loadMessages();
+      messages.push({ id: result.id, prompt, status: 'pending' }); renderMessages();
+      try { await refreshList(); await loadMessages(); }
+      catch (error) { notice.textContent = 'حُفظت رسالتك، لكن تعذر تحديث السجل الآن. أعد فتح المحادثة بعد قليل.'; poll(result.id, selected); }
     } finally { busy = false; if (active()) $('#aiSend').disabled = false; }
   });
   input.onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#assistantForm').requestSubmit(); } };
   try {
-    const [status] = await Promise.all([api('/api/ai/status'), refreshList()]); if (!active()) return;
+    const status = await api('/api/ai/status'); if (!active()) return;
     planEnabled = status.planEnabled; available = status.available && planEnabled;
     $('#aiStatus').className = `badge ${status.available ? 'good' : 'warn'}`;
     $('#aiStatus').textContent = status.available ? 'متصل' : 'الجهاز المحلي غير متصل';
     if (!planEnabled) notice.textContent = 'AI ديسكوكو متاح من باقة Starter. طوّر باقتك لتستخدمه.';
     else if (!status.available) notice.textContent = 'يمكنك قراءة محادثاتك السابقة. لإرسال رسالة جديدة، شغّل AI ديسكوكو على جهاز التشغيل.';
-    await loadMessages();
+    try { await refreshList(); await loadMessages(); }
+    catch (error) { notice.textContent = 'تعذر تحميل السجل من Discord الآن. أعد المحاولة بعد قليل.'; }
   } catch (error) { if (active()) notice.textContent = error.message; }
 }
 async function commands() {
