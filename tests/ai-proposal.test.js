@@ -5,7 +5,7 @@ import { normalizeAiProposal } from '../lib/local-ai.js';
 test('AI proposal only permits reviewed creation and bounded messages', () => {
   const result = normalizeAiProposal({
     operations: [
-      { resource_type: 'role', name: 'New Member', permissions: '8', action: 'delete' },
+      { resource_type: 'role', name: 'Do not create', permissions: '8', action: 'delete' },
       { resource_type: 'role', name: 'New Member' },
       { resource_type: 'role', name: 'Admin' },
       { resource_type: 'channel', name: 'general', type: 0 },
