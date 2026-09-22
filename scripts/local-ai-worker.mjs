@@ -32,7 +32,8 @@ async function respond(job) {
     '/no_think',
   ].join('\n');
   const context = Array.isArray(job.context) ? job.context.filter(item => ['user', 'assistant'].includes(item?.role) && typeof item.content === 'string').slice(-12) : [];
-  const messages = [{ role: 'system', content: system }, ...context, { role: 'user', content: job.prompt }];
+  const previousUserMessages = context.filter(item => item.role === 'user').length;
+  const messages = [{ role: 'system', content: `${system}\nعدد رسائل المستخدم السابقة في هذه المحادثة: ${previousUserMessages}. لا تحسب الرسالة الحالية ضمن هذا العدد.` }, ...context, { role: 'user', content: job.prompt }];
   const body = provider === 'ollama'
     ? await request(`${inference}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, think: false, messages, options: { num_ctx: 4096, num_predict: 700, temperature: 0.4 } }) })
     : await request(`${inference}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages, max_tokens: 700, temperature: 0.4 }) });
@@ -57,5 +58,4 @@ while (!stopping) {
     await delay(5000);
   }
 }
-
 
