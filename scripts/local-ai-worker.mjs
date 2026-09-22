@@ -62,7 +62,7 @@ async function respond(job) {
   ].join('\n');
   const context = Array.isArray(job.context) ? job.context.filter(item => ['user', 'assistant'].includes(item?.role) && typeof item.content === 'string').slice(-6) : [];
   const previousUserMessages = context.filter(item => item.role === 'user').length;
-  const messages = [{ role: 'system', content: `${system}\nعدد رسائل المستخدم السابقة في هذه المحادثة: ${previousUserMessages}. لا تحسب الرسالة الحالية ضمن هذا العدد. إذا قال المستخدم نفذ، اكتب النص النهائي المتفق عليه حرفيًا إن كان نشر رسالة، ولا تقل إن شيئًا نُشر قبل تأكيده في الواجهة.` }, ...context, { role: 'user', content: job.prompt }];
+  const messages = [{ role: 'system', content: `${system}\nعدد رسائل المستخدم السابقة في هذه المحادثة: ${previousUserMessages}. لا تحسب الرسالة الحالية ضمن هذا العدد. افهم نية المستخدم من المعنى والسياق، لا من كلمة محددة. لا تستخدم مطلقًا عبارات «تم التنفيذ» أو «تم النشر» أو «تم الإنشاء»؛ التنفيذ لا يحدث داخل النموذج، بل بعد بطاقة المراجعة ونجاح Discord.` }, ...context, { role: 'user', content: job.prompt }];
   let answer = await generate(messages);
   if (!answer) throw new Error('النموذج لم يرجع إجابة');
   const priorAnswers = context.filter(item => item.role === 'assistant').map(item => item.content);
@@ -76,23 +76,26 @@ async function respond(job) {
     ], 350, 0.2);
   }
   const proposal = await propose(job, context, guild, answer);
-  if (proposal?.interactive && !/زر المراجعة|بطاقة المراجعة/.test(answer)) answer += '\nجهزت الإعدادات في بطاقة المراجعة أسفل الرد. راجعها ثم أكد النشر.';
+  if (proposal) answer = 'جهزت طلبك للمراجعة. افتح بطاقة التنفيذ أدناه، وتأكد من التفاصيل والصورة إن وجدت، ثم اضغط «نعم، أؤكد التنفيذ». لن يتغير شيء في Discord قبل تأكيدك.';
+  else if (/(?:تم|لقد)\s+(?:تنفيذ|نشر|إنشاء|إرسال|تشغيل)|(?:نشرت|أنشأت|أرسلت|نفذت|فعّلت)\s+(?:لك|الرسالة|اللوحة|النظام)/i.test(answer)) {
+    answer = 'جهزت لك الفكرة، لكن لم أنفذ شيئًا في Discord. اذكر التغيير الذي تريد تطبيقه، وسأعرض عليك بطاقة مراجعة واضحة قبل التنفيذ.';
+  }
   return { answer: answer.slice(0, 5000), proposal };
 }
 
 async function propose(job, context, guild, answer) {
-  const recent = [...context, { role: 'user', content: job.prompt }, { role: 'assistant', content: answer }].slice(-14).map(item => `${item.role}: ${item.content}`).join('\n');
-  // A proposal is the final authorization step, not an unsolicited card during discussion.
-  if (!/(نفذ|نفّذ|التنفيذ|طبق|طبّق|ابدأ|ابدا|يلا|موافق|أوافق|اوكي|أوكي|نعم|أيوه|ايه)/i.test(job.prompt)) return null;
-  if (/(لعب[هة]?|game)/i.test(recent) && !/(جيف.?آواي|giveaway)/i.test(recent)) return null;
+  const recent = [...context, { role: 'user', content: job.prompt }].slice(-13).map(item => `${item.role}: ${item.content}`).join('\n');
   const instructions = [
-    'استخرج فقط تعديلًا واضحًا أراده المستخدم لسيرفر Discord من المحادثة التالية. إذا كانت آخر رسالة من المستخدم موافقة قصيرة، ارجع لآخر طلب ومحتوى المسودة التي اتفق عليها مع المساعد.',
-    'أرجع JSON فقط بهذا الشكل: {"operations":[],"message":null,"interactive":null}.',
+    'حلل نية آخر رسالة مستخدم اعتمادًا على المحادثة. لا تعتمد على قائمة كلمات ثابتة.',
+    'ضع executeNow=true فقط إذا كان المستخدم في رسالته الأخيرة يطلب بوضوح تطبيق أو نشر النسخة المتفق عليها الآن، أو يؤكد البدء بعد عرض مسودة. الموافقة على جودة النص أو قول إنه ممتاز دون طلب النشر ليست تنفيذًا. السؤال والاستكشاف وطلب تعديل إضافي ليست تنفيذًا.',
+    'أرجع JSON فقط بهذا الشكل: {"executeNow":false,"operations":[],"message":null,"interactive":null}. إذا executeNow=false يجب أن تكون بقية الحقول فارغة.',
+    'إذا executeNow=true، استخرج فقط التغيير النهائي الواضح الذي أراده المستخدم. إذا كانت الرسالة الأخيرة قصيرة، ارجع لآخر طلب ومسودة اتفق عليها مع المساعد.',
     'أنواع operations المسموحة role أو channel أو category فقط، بفعل إنشاء عناصر جديدة. حد أقصى 8. لا تضف رتبة Admin أو صلاحيات مرتفعة تلقائيًا.',
-    'إذا اتفقا على نشر رسالة واحدة، ضع message ككائن {"channel":"اسم القناة الموجودة","content":"النص النهائي المتفق عليه حرفيًا"}. حافظ على الأسماء والتفاصيل والأسلوب المذكور، ولا تستبدلها برسالة ترحيب عامة.',
+    'إذا اتفقا على نشر رسالة واحدة، ضع message ككائن {"channel":"اسم القناة الموجودة","content":"النص النهائي المتفق عليه حرفيًا"}. حافظ على الأسماء والتفاصيل والأسلوب المذكور، ولا تستبدلها برسالة ترحيب عامة. إذا لم تجد النص النهائي في السياق، لا تخترع نصًا؛ أرجع executeNow=false واطلب من المستخدم النص.',
     'للجيف آواي التفاعلي استخدم interactive: {"kind":"giveaway","prize":"الجائزة","channel":"القناة","durationMinutes":60,"winnerCount":1}. المدة بين 5 و43200 دقيقة والفائزون 1 إلى 20. لا تخترع الجائزة أو المدة إن لم تُذكر؛ اسأل عنها بدل الخطة.',
     'لنظام التذاكر استخدم interactive: {"kind":"tickets","title":"عنوان لوحة الدعم","description":"وصف مختصر","channel":"قناة نشر اللوحة"}. إذا لم يحدد عنوانًا ووصفًا، اكتب صياغة مناسبة لطلبه. لا تضع جيف آواي أو تذاكر في حقل message العادي.',
-    'إذا لا يوجد تغيير واضح أو التفاصيل الأساسية ناقصة، أرجع {"operations":[],"message":null,"interactive":null}. لا تنشئ قناة موجودة. لا تنفذ شيئًا بنفسك.',
+    'الألعاب التفاعلية ليست مدعومة بعد. إذا كان الطلب لعبة، أرجع executeNow=false ولا تحوله إلى رسالة أو رتبة.',
+    'إذا لا يوجد تغيير واضح أو التفاصيل الأساسية ناقصة، أرجع {"executeNow":false,"operations":[],"message":null,"interactive":null}. لا تنشئ قناة موجودة. لا تنفذ شيئًا بنفسك.',
     `قنوات السيرفر الموجودة: ${(guild.channels || []).map(item => item.name).join(', ')}. رتب السيرفر الموجودة: ${(guild.roles || []).map(item => item.name).join(', ')}.`,
     '/no_think',
   ].join('\n');
@@ -103,6 +106,7 @@ async function propose(job, context, guild, answer) {
       : await request(`${inference}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages, max_tokens: 350, temperature: 0, response_format: { type: 'json_object' } }) });
     const raw = String(provider === 'ollama' ? body.message?.content || '' : body.choices?.[0]?.message?.content || '');
     const parsed = JSON.parse(raw);
+    if (parsed.executeNow !== true) return null;
     if (/(الجدد|عضو جديد|الأعضاء الجدد)/.test(recent) && Array.isArray(parsed.operations)) {
       parsed.operations = parsed.operations.map(item => item?.resource_type === 'role' && /new.?member|member|عضو/i.test(String(item.name || '')) ? { ...item, name: 'عضو جديد' } : item);
     }
