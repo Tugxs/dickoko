@@ -295,10 +295,10 @@ async function assistant() {
   $('#aiStopVoice').onclick = () => recognition?.stop();
   $('#aiVoice').onclick = async () => {
     if (recognition) { recognition.stop(); return; }
-    if (!navigator.mediaDevices?.getUserMedia) { notice.textContent = 'هذا المتصفح لا يتيح طلب إذن الميكروفون لهذه الصفحة. افتح الموقع مباشرة في Chrome أو Edge عبر https://diskoko.com ثم اضغط مايك.'; return; }
+    if (!navigator.mediaDevices?.getUserMedia) { notice.textContent = 'المايك غير متاح هنا. افتح الموقع في Chrome.'; return; }
     try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); }
-    catch (error) { notice.textContent = ['NotAllowedError','PermissionDeniedError'].includes(error.name) ? 'إذن الميكروفون مرفوض أو محظور مسبقًا. اضغط أيقونة الإعدادات بجانب عنوان diskoko.com، واجعل «الميكروفون: سماح»، ثم أعد تحميل الصفحة. المتصفح لا يعرض السؤال مرة أخرى بعد الحظر.' : error.name === 'NotFoundError' ? 'لم يجد المتصفح ميكروفونًا متصلًا. وصّل المايك وتأكد من إعدادات الصوت في الجهاز.' : `تعذر تشغيل الميكروفون (${error.name || 'خطأ غير معروف'}). افتح الموقع مباشرة في Chrome أو Edge وحاول مجددًا.`; return; }
-    if (!Recognition) { notice.textContent = 'تم السماح بالميكروفون، لكن هذا المتصفح لا يدعم تحويل الكلام إلى نص. افتح الموقع مباشرة في Chrome أو Edge.'; return; }
+    catch (error) { notice.textContent = ['NotAllowedError','PermissionDeniedError'].includes(error.name) ? 'المايك محظور. اسمح له من أيقونة الموقع بجانب الرابط.' : error.name === 'NotFoundError' ? 'لا يوجد مايك متصل بالجهاز.' : 'تعذر تشغيل المايك. جرّب Chrome مباشرة.'; return; }
+    if (!Recognition) { notice.textContent = 'تم السماح بالمايك، لكن تحويل الصوت غير مدعوم هنا.'; return; }
     let devices = []; try { devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput'); } catch {}
     modal('اختيار الميكروفون', `<p class="form-note">يستخدم تحويل الكلام إلى نص ميكروفون المتصفح الافتراضي. إذا عندك أكثر من جهاز، اختر الميكروفون الافتراضي من إعدادات المتصفح أو النظام قبل البدء.</p><div class="ai-device-list">${devices.map(device => `<div>🎙 ${esc(device.label || 'ميكروفون')}</div>`).join('') || '<div>الميكروفون الافتراضي</div>'}</div><p class="form-note">بعد السماح، سيظهر شريط التسجيل والكلام المكتوب قبل أن تضغط إرسال.</p>`, '<button id="aiVoiceCancel" class="btn secondary" type="button">إلغاء</button><button id="aiVoiceStart" class="btn primary" type="button">ابدأ التسجيل</button>');
     $('#aiVoiceCancel').onclick = closeDialog;
