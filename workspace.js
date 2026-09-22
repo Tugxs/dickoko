@@ -367,6 +367,10 @@ async function assistant() {
     $('#aiLibraryList').innerHTML = matched.length ? matched.map(item => `<button type="button" class="ai-library-item" data-ai-template="${item.index}"><span>${item.mode === 'execute' ? '⚡ تنفيذ بعد المراجعة' : '✦ كتابة وتخطيط'}</span><b>${esc(item.title)}</b><small>${esc(item.prompt)}</small></button>`).join('') : '<p class="ai-library-empty">لا توجد نتائج. جرّب كلمة أخرى.</p>';
     $('#aiLibraryList').querySelectorAll('[data-ai-template]').forEach(button => button.onclick = () => {
       selectedTemplate = aiPromptLibrary[Number(button.dataset.aiTemplate)];
+      if (selected && messages.length) {
+        selected = ''; messages = []; sessionStorage.removeItem(storageKey); renderList(); renderMessages();
+        notice.textContent = 'بدأت مسودة جديدة حتى لا تختلط المهمة بسياق محادثة سابقة.';
+      }
       input.value = selectedTemplate.prompt;
       $('#aiTemplateDraft').hidden = false;
       $('#aiTemplateDraft').innerHTML = `<div><b>مسودة: ${esc(selectedTemplate.title)}</b><small>${selectedTemplate.mode === 'execute' ? 'ناقشها مع AI، ثم قل «يلا نفّذ» لتظهر بطاقة المراجعة.' : 'عدّل النص ثم أرسله ليجهز AI الناتج في الدردشة.'} استبدل ما بين [ ] بتفاصيلك.</small></div><button id="aiClearTemplate" type="button" class="btn small secondary">مسح المسودة</button>`;

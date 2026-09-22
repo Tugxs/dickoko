@@ -44,9 +44,6 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
   assert.equal(doc.querySelectorAll('.ai-library-item').length, 100);
-  doc.querySelector('[data-ai-template="0"]').click();
-  assert.match(doc.querySelector('#assistantPrompt').value, /جيف آواي/);
-  assert.equal(doc.querySelector('#aiTemplateDraft').hidden, false);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.ok(doc.querySelector('[data-ai-plan]'));
   doc.querySelector('[data-ai-message]').click();
@@ -57,6 +54,11 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('[data-ai-interactive]').click();
   assert.equal(doc.querySelector('#aiInteractiveChannel').value, 'c2');
   assert.equal(doc.querySelector('#aiInteractiveLaunch').disabled, true);
+  doc.querySelector('#aiInteractiveCancel').click();
+  doc.querySelector('[data-ai-template="0"]').click();
+  assert.match(doc.querySelector('#assistantPrompt').value, /جيف آواي/);
+  assert.equal(doc.querySelector('#aiTemplateDraft').hidden, false);
+  assert.match(doc.querySelector('#aiNotice').textContent, /مسودة جديدة/);
   dom.window.close();
 });
 test('analytics opt-in is separate from viewing analytics', async () => {

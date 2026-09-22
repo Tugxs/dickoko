@@ -18,6 +18,24 @@ async function request(url, options = {}) {
   return body;
 }
 
+function normalizedWords(value) {
+  return new Set(String(value || '').toLowerCase().replace(/[`*_#>\-—|()[\]{}:،؛؟.!?]/g, ' ').split(/\s+/).filter(word => word.length > 2));
+}
+
+function similarity(left, right) {
+  const a = normalizedWords(left), b = normalizedWords(right);
+  if (!a.size || !b.size) return 0;
+  let shared = 0; for (const word of a) if (b.has(word)) shared++;
+  return shared / Math.min(a.size, b.size);
+}
+
+async function generate(messages, maxTokens = 700, temperature = 0.35) {
+  const body = provider === 'ollama'
+    ? await request(`${inference}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, think: false, messages, options: { num_ctx: 4096, num_predict: maxTokens, temperature } }) })
+    : await request(`${inference}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages, max_tokens: maxTokens, temperature }) });
+  return String(provider === 'ollama' ? body.message?.content || '' : body.choices?.[0]?.message?.content || '').trim();
+}
+
 async function respond(job) {
   const guild = job.guild_context || {};
   const guildSummary = `اسم السيرفر: ${guild.name || 'غير متاح'}. القنوات الحالية: ${(guild.channels || []).map(item => item.name).join('، ') || 'غير متاحة'}. الرتب الحالية: ${(guild.roles || []).map(item => item.name).join('، ') || 'غير متاحة'}.`;
@@ -31,6 +49,7 @@ async function respond(job) {
     'إذا طلب المستخدم اختبارًا أو ردًا قصيرًا، نفّذ المطلوب مباشرة ولا تسأله إن كان يريد الاختبار. لا تذكر معرّف السيرفر الرقمي إلا إذا طلبه.',
     'المنصة تقدر تنشئ رتبًا وقنوات بعد عرض خطة للمراجعة وتأكيد المستخدم في الواجهة. إذا كانت هناك خطة مرفقة بردك، قل: جهزت لك خطة قابلة للمراجعة والتطبيق من الزر أسفل الرد. لا تقل تم التنفيذ قبل نجاح Discord فعليًا.',
     'معلومات ديسكوكو: يمكن مراجعة وإنشاء الرتب والقنوات، ونشر رسالة واحدة مع صورة. يمكن كذلك تشغيل جيف آواي تفاعلي بزر مشاركة وسحب فائزين تلقائي عند انتهاء المدة، ولوحة تذاكر دعم بزر يفتح قناة خاصة ثم يغلقها. كل هذا يظهر للمراجعة والتأكيد قبل النشر. الإملاء الصوتي يحول كلام العميل إلى نص قبل الإرسال.',
+    'الألعاب من مكتبة الاقتراحات هي أفكار وتصميمات نصية فقط حاليًا، وليست ألعابًا منشورة أو قابلة للتشغيل بزر. إذا طلب المستخدم إنشاء اللعبة أو سأل أين هي، قل بوضوح إنها لم تُنشر وإن التنفيذ التفاعلي للألعاب غير متاح بعد. لا تحوّل اللعبة إلى رتبة أو ترحيب أو رسالة عامة، ولا تدّع أنها بدأت.',
     ...(job.has_attachment ? ['أرفق المستخدم صورة مع رسالته. النموذج الحالي نصي ولا يستطيع رؤية محتوى الصورة؛ لا تصفها أو تدّعِ أنك حللتها. أخبره عند الحاجة أن الصورة محفوظة مع الرسالة وسترفق مع رسالة Discord بعد مراجعتها.'] : []),
     'توزيع رتبة تلقائيًا على كل عضو جديد غير مفعّل حاليًا، ولا يُنجزه إنشاء الرتبة وحده. إذا طلبه العميل، وضّح هذا الفرق باختصار ولا تقل إنه تم.',
     'الصلاحيات الحساسة مثل Administrator لا تُمنح تلقائيًا. لا تصف صلاحية Discord غير مدعومة كأنها جاهزة، ولا تستخدم أسماء صلاحيات مختلقة.',
@@ -41,14 +60,21 @@ async function respond(job) {
     guildSummary,
     '/no_think',
   ].join('\n');
-  const context = Array.isArray(job.context) ? job.context.filter(item => ['user', 'assistant'].includes(item?.role) && typeof item.content === 'string').slice(-12) : [];
+  const context = Array.isArray(job.context) ? job.context.filter(item => ['user', 'assistant'].includes(item?.role) && typeof item.content === 'string').slice(-6) : [];
   const previousUserMessages = context.filter(item => item.role === 'user').length;
   const messages = [{ role: 'system', content: `${system}\nعدد رسائل المستخدم السابقة في هذه المحادثة: ${previousUserMessages}. لا تحسب الرسالة الحالية ضمن هذا العدد. إذا قال المستخدم نفذ، اكتب النص النهائي المتفق عليه حرفيًا إن كان نشر رسالة، ولا تقل إن شيئًا نُشر قبل تأكيده في الواجهة.` }, ...context, { role: 'user', content: job.prompt }];
-  const body = provider === 'ollama'
-    ? await request(`${inference}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, think: false, messages, options: { num_ctx: 4096, num_predict: 700, temperature: 0.4 } }) })
-    : await request(`${inference}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages, max_tokens: 700, temperature: 0.4 }) });
-  let answer = String(provider === 'ollama' ? body.message?.content || '' : body.choices?.[0]?.message?.content || '').trim();
+  let answer = await generate(messages);
   if (!answer) throw new Error('النموذج لم يرجع إجابة');
+  const priorAnswers = context.filter(item => item.role === 'assistant').map(item => item.content);
+  const repeated = priorAnswers.some(previous => similarity(answer, previous) >= 0.72);
+  const leakedOldTopic = /(رتبة جديدة|رسالة ترحيب|القناة general)/i.test(answer) && /(لعب|game)/i.test(`${job.prompt}\n${context.slice(-4).map(item => item.content).join('\n')}`);
+  if (repeated || leakedOldTopic) {
+    answer = await generate([
+      { role: 'system', content: `${system}\nالرد الأول رُفض لأنه كرر كلامًا سابقًا أو خلط موضوعًا قديمًا. أجب عن آخر سؤال فقط في 2 إلى 6 جمل جديدة. لا تكرر أي قائمة سابقة، ولا تذكر الرتب أو الترحيب إلا إذا طلبهما المستخدم في رسالته الحالية. كن صريحًا بشأن ما نُشر فعليًا وما بقي مجرد تصميم.` },
+      ...context.slice(-4),
+      { role: 'user', content: job.prompt },
+    ], 350, 0.2);
+  }
   const proposal = await propose(job, context, guild, answer);
   if (proposal?.interactive && !/زر المراجعة|بطاقة المراجعة/.test(answer)) answer += '\nجهزت الإعدادات في بطاقة المراجعة أسفل الرد. راجعها ثم أكد النشر.';
   return { answer: answer.slice(0, 5000), proposal };
@@ -58,6 +84,7 @@ async function propose(job, context, guild, answer) {
   const recent = [...context, { role: 'user', content: job.prompt }, { role: 'assistant', content: answer }].slice(-14).map(item => `${item.role}: ${item.content}`).join('\n');
   // A proposal is the final authorization step, not an unsolicited card during discussion.
   if (!/(نفذ|نفّذ|التنفيذ|طبق|طبّق|ابدأ|ابدا|يلا|موافق|أوافق|اوكي|أوكي|نعم|أيوه|ايه)/i.test(job.prompt)) return null;
+  if (/(لعب[هة]?|game)/i.test(recent) && !/(جيف.?آواي|giveaway)/i.test(recent)) return null;
   const instructions = [
     'استخرج فقط تعديلًا واضحًا أراده المستخدم لسيرفر Discord من المحادثة التالية. إذا كانت آخر رسالة من المستخدم موافقة قصيرة، ارجع لآخر طلب ومحتوى المسودة التي اتفق عليها مع المساعد.',
     'أرجع JSON فقط بهذا الشكل: {"operations":[],"message":null,"interactive":null}.',
