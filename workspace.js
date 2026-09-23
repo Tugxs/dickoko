@@ -384,7 +384,15 @@ const aiSuggestionGroups = [
     ['مراجعة تجربة العضو', 'اعمل مراجعة لمسار العضو من الدعوة حتى طلب الدعم، وحدد نقاط التعقيد.'],
   ] },
 ];
-const aiPromptLibrary = aiSuggestionGroups.flatMap(group => group.prompts.map(([title, prompt, mode]) => ({ title, prompt, category: group.name, mode: mode || group.mode }))).filter(item => item.mode === 'execute');
+// Keep the public library focused on flows with a dedicated editor, preview and live action.
+// Structure and role ideas return when their permission and placement reviews are complete.
+const readyAiTemplates = new Set([
+  'جيف آواي سريع', 'جائزة اشتراك', 'جائزة لأكثر من فائز',
+  'لوحة تذاكر الدعم', 'دعم العملاء', 'قسم طلب المساعدة',
+  'إعلان مع صورة', 'رسالة ترحيب واحدة', 'إعلان فعالية',
+  'استطلاع رأي',
+]);
+const aiPromptLibrary = aiSuggestionGroups.flatMap(group => group.prompts.map(([title, prompt, mode]) => ({ title, prompt, category: group.name, mode: mode || group.mode }))).filter(item => item.mode === 'execute' && readyAiTemplates.has(item.title));
 function aiActionChoices(answer) {
   return String(answer || '').split('\n').map(line => line.trim().replace(/^\*+/, '').trim()).map(line => /^[0-9٠-٩۰-۹]{1,2}[.)،:\-]\s*(.{8,300})/.exec(line)?.[1]?.replace(/^\*+|\*+$/g, '').trim()).filter(Boolean).slice(0, 10);
 }
