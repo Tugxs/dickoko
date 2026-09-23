@@ -2,7 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { libraryDraftProposal, incompleteLibraryValue } from '../lib/ai-library-draft.js';
+import { libraryDraftProposal, incompleteLibraryValue, validatedAiMedia } from '../lib/ai-library-draft.js';
+import { presentAiRequest } from '../lib/local-ai.js';
+
+test('executable library requests keep their action card even when the prompt mentions a plan', () => {
+  const prompt = 'جهز لوحة تذاكر دعم في #[القناة] بعنوان [العنوان]، ووصفها [الوصف]. اعرض الخطة قبل النشر.';
+  const proposal = libraryDraftProposal({ mode: 'execute', category: 'تذاكر الدعم', title: 'لوحة تذاكر الدعم', prompt });
+  const shown = presentAiRequest({ prompt, library_mode: 'execute', proposal });
+  assert.equal(shown.can_select_step, false);
+  assert.equal(shown.can_publish_answer, false);
+  assert.equal(shown.proposal.interactive.kind, 'tickets');
+});
+
+test('animated GIF and MP4 retain their original bytes while unsupported media is rejected', () => {
+  const gif = Buffer.from('GIF89a\0\0\0\0');
+  const mp4 = Buffer.from('\0\0\0\x18ftypisom');
+  assert.equal(validatedAiMedia({ mime: 'image/gif', base64: gif.toString('base64') }).base64, gif.toString('base64'));
+  assert.equal(validatedAiMedia({ mime: 'video/mp4', base64: mp4.toString('base64') }).base64, mp4.toString('base64'));
+  assert.throws(() => validatedAiMedia({ mime: 'video/mp4', base64: gif.toString('base64') }));
+});
 
 test('untouched library templates open editable task-specific drafts', () => {
   const cases = [
@@ -35,3 +53,4 @@ test('every executable library template has a typed review path when sent unchan
   assert.ok(executable.length >= 25);
   for (const task of executable) assert.ok(libraryDraftProposal(task), `Missing review path: ${task.category} / ${task.title}`);
 });
+

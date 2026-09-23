@@ -83,6 +83,19 @@ test('ticket banner renders before the support description and keeps the open bu
   assert.equal(payload.components[0].components[0].label, 'فتح تذكرة');
 });
 
+test('giveaway GIF remains animated and video is attached without an invalid image embed', () => {
+  const message = { embeds: [{ title: 'مسابقة', description: 'شارك الآن' }], components: [{ type: 1, components: [{ type: 2, label: 'مشاركة' }] }] };
+  const gif = discordMessageOptions(message, { mime: 'image/gif', base64: Buffer.from('GIF89a\0\0').toString('base64') });
+  const gifPayload = JSON.parse(gif.body.get('payload_json'));
+  assert.equal(gifPayload.embeds[0].image.url, 'attachment://diskoko-banner.gif');
+  assert.equal(gif.body.get('files[0]').type, 'image/gif');
+  const video = discordMessageOptions(message, { mime: 'video/mp4', base64: Buffer.from('\0\0\0\x18ftypisom').toString('base64') });
+  const videoPayload = JSON.parse(video.body.get('payload_json'));
+  assert.equal(videoPayload.embeds.length, 1);
+  assert.equal(videoPayload.embeds[0].title, 'مسابقة');
+  assert.equal(video.body.get('files[0]').type, 'video/mp4');
+});
+
 test('giveaway announcement retry keeps the same winner and edits the original message', async () => {
   const giveaway = { id: 'giveaway-1', guild_id: 'guild-1', channel_id: 'channel-1', message_id: 'message-1', prize: 'هدية', winner_count: 1, status: 'active', winners: [], announced_at: null };
   let entryReads = 0;
@@ -116,3 +129,4 @@ test('giveaway announcement retry keeps the same winner and edits the original m
   assert.equal(edits[0].body.content, edits[1].body.content);
   assert.ok(giveaway.announced_at);
 });
+

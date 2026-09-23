@@ -132,7 +132,10 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   assert.ok(doc.querySelector('.ai-discord-members'));
   doc.querySelector('#aiPrize').value = 'جائزة جديدة';
   doc.querySelector('#aiPrize').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-  assert.match(doc.querySelector('#aiPreviewTitle').textContent, /جائزة جديدة/);
+  assert.match(doc.querySelector('#aiPreviewDescription').textContent, /جائزة جديدة/);
+  doc.querySelector('#aiGiveawayTitle').value = 'عنوان جديد';
+  doc.querySelector('#aiGiveawayTitle').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.match(doc.querySelector('#aiPreviewTitle').textContent, /عنوان جديد/);
   assert.equal(doc.querySelector('#aiInteractiveLaunch').disabled, true);
   doc.querySelector('#aiInteractiveCancel').click();
   doc.querySelector('[data-ai-template="0"]').click();

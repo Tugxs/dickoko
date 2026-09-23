@@ -1,5 +1,18 @@
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+function discordMarkdownPreview(value) {
+  return esc(value).split('\n').map(line => {
+    let rendered = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<u>$1</u>').replace(/~~(.+?)~~/g, '<s>$1</s>')
+      .replace(/\|\|(.+?)\|\|/g, '<span class="ai-preview-spoiler">$1</span>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/g, '<u>$1</u>');
+    if (/^#{1,3} /.test(rendered)) rendered = `<strong class="ai-preview-heading">${rendered.replace(/^#{1,3} /, '')}</strong>`;
+    if (/^&gt; /.test(rendered)) rendered = `<span class="ai-preview-quote">${rendered.slice(5)}</span>`;
+    return rendered;
+  }).join('<br>');
+}
 const fmt = value => new Intl.NumberFormat('ar-SA').format(value ?? 0);
 const date = value => value ? new Date(value).toLocaleString('ar-SA', { dateStyle: 'medium', timeStyle: 'short' }) : 'لم يتم بعد';
 const state = { account: null, guild: new URLSearchParams(location.search).get('guild'), data: null, loading: true, error: null, tab: 'channels', draft: [], templates: null, epoch: 0, days: 7 };
@@ -217,6 +230,11 @@ async function prepareAiImage(file) {
     if (data.length < 460000) return { mime: 'image/jpeg', base64: data };
   }
   throw Error('الصورة كبيرة جدًا بعد الضغط. اختر صورة أصغر.');
+}
+async function prepareAiMedia(file) {
+  if (!['image/gif', 'video/mp4', 'video/quicktime'].includes(file.type) || !file.size || file.size > 20 * 1024 * 1024) throw Error('اختر GIF أو MP4 أو MOV بحجم لا يتجاوز 20 ميجابايت.');
+  const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '').split(',')[1]); reader.onerror = () => reject(Error('تعذر قراءة الملف المتحرك.')); reader.readAsDataURL(file); });
+  return { mime: file.type, base64: encoded };
 }
 async function prepareDownloadFile(file) {
   const allowed = ['application/pdf', 'application/zip', 'application/x-zip-compressed', 'text/plain', 'image/png', 'image/jpeg', 'image/webp'];
@@ -500,18 +518,26 @@ async function assistant() {
       if (!item?.proposal?.message) return;
       const textChannels = (state.data.channels || []).filter(channel => [0, 5].includes(channel.type));
       modal('مراجعة الرسالة قبل إرسالها', `<label>قناة النشر<select id="aiMessageChannel"><option value="">اختر قناة نصية</option>${textChannels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === item.proposal.message.channel.toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}</select></label><label>نص الرسالة<textarea id="aiMessageContent" rows="5" maxlength="1800">${esc(item.proposal.message.content)}</textarea></label>${item.has_attachment ? `<div class="ai-review-image"><img src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="الصورة المرفقة مع طلبك"><span>ستُرسل هذه الصورة مع الرسالة إلى Discord</span></div>` : ''}<label>تغيير الصورة أو إرفاق صورة (اختياري)<input id="aiMessageImage" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="form-note">ستُنشر مرة واحدة بواسطة بوت ديسكوكو، ولن تُرسل إشارات جماعية.</p><label class="check-row"><input id="aiMessageConfirmed" type="checkbox">راجعت الرسالة والقناة وأوافق على نشرها.</label>`, '<button class="btn secondary" id="aiMessageCancel">إلغاء</button><button class="btn primary" id="aiMessageSend" disabled>نعم، أؤكد التنفيذ</button>');
+      $('#aiMessageContent').closest('label').insertAdjacentHTML('afterend', '<div class="ai-format-toolbar" role="toolbar" aria-label="تنسيق رسالة Discord"><button type="button" data-format="heading" title="عنوان كبير">عنوان</button><button type="button" data-format="bold" title="عريض"><b>عريض</b></button><button type="button" data-format="italic" title="مائل"><i>مائل</i></button><button type="button" data-format="underline" title="تسطير"><u>تسطير</u></button><button type="button" data-format="strike" title="يتوسطه خط"><s>شطب</s></button><button type="button" data-format="spoiler" title="نص مخفي">مخفي</button><button type="button" data-format="quote" title="اقتباس">اقتباس</button><button type="button" data-format="code" title="رمز برمجي">كود</button><button type="button" data-format="link" title="رابط باسم">رابط</button></div><small class="form-note">هذه أدوات تنسيق Discord الفعلية؛ نوع الخط وحجمه الحر لا يتغيران في الرسائل العادية.</small>');
       $('#aiMessageImage').closest('label').insertAdjacentHTML('afterend', '<label>موضع الصورة في Discord<select id="aiMessageImagePosition"><option value="above">فوق النص</option><option value="below">تحت النص</option></select></label>');
       $('#aiMessageImagePosition').closest('label').insertAdjacentHTML('afterend', `<section class="ai-discord-preview" aria-label="معاينة الرسالة داخل السيرفر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>شكل تقريبي قبل الإرسال</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${textChannels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiMessagePreviewChannel"></div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div><div class="ai-message-preview-body"><p id="aiMessagePreviewText"></p>${item.has_attachment ? `<img class="ai-discord-banner" src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="الصورة المرفقة">` : ''}</div></div>${previewMemberRail()}</div></section>`);
       let messagePreviewUrl = '';
       const updateMessagePreview = () => {
         const selectedChannel = $('#aiMessageChannel').selectedOptions[0]?.textContent || 'اختر قناة النشر';
         $('#aiMessagePreviewChannel').textContent = selectedChannel.startsWith('#') ? selectedChannel : `# ${selectedChannel}`;
-        $('#aiMessagePreviewText').textContent = $('#aiMessageContent').value.trim() || 'اكتب نص الرسالة لترى المعاينة.';
+        $('#aiMessagePreviewText').innerHTML = discordMarkdownPreview($('#aiMessageContent').value.trim() || 'اكتب نص الرسالة لترى المعاينة.');
         document.querySelectorAll('[data-preview-channel]').forEach(entry => entry.classList.toggle('active', entry.dataset.previewChannel === $('#aiMessageChannel').value));
         const body = $('.ai-message-preview-body'), banner = body.querySelector('.ai-discord-banner');
         if (banner) $('#aiMessageImagePosition').value === 'above' ? body.prepend(banner) : body.append(banner);
       };
       $('#aiMessageContent').oninput = updateMessagePreview;
+      document.querySelectorAll('.ai-format-toolbar [data-format]').forEach(formatButton => formatButton.onclick = () => {
+        const field = $('#aiMessageContent'), start = field.selectionStart, end = field.selectionEnd;
+        const selected = field.value.slice(start, end) || 'النص';
+        const wrap = { bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'], strike: ['~~', '~~'], spoiler: ['||', '||'], code: ['`', '`'], link: ['[', '](https://example.com)'] }[formatButton.dataset.format];
+        const replacement = formatButton.dataset.format === 'heading' ? `# ${selected}` : formatButton.dataset.format === 'quote' ? `> ${selected}` : `${wrap[0]}${selected}${wrap[1]}`;
+        field.setRangeText(replacement, start, end, 'select'); field.focus(); updateMessagePreview();
+      });
       $('#aiMessageChannel').onchange = updateMessagePreview;
       $('#aiMessageImagePosition').onchange = updateMessagePreview;
       $('#aiMessageImage').onchange = event => {
@@ -542,6 +568,11 @@ async function assistant() {
       const downloadFields = `${channelField}<label>عنوان البطاقة<input id="aiDownloadTitle" maxlength="100" value="${esc(plan.title)}"></label><label>وصف الملف<textarea id="aiDownloadDescription" maxlength="800" rows="3">${esc(plan.description)}</textarea></label><label>اختر ملف التحميل<input id="aiDownloadFile" type="file" accept=".pdf,.zip,.txt,.png,.jpg,.jpeg,.webp,application/pdf,application/zip,text/plain,image/png,image/jpeg,image/webp" required></label><p class="form-note">ملف واحد حتى 5 ميجابايت. سيظهر في القناة المحددة كبطاقة وزر تحميل. يحتفظ البوت بالملف في قناة خاصة داخل سيرفرك.</p>`;
       const fields = plan.kind === 'download' ? downloadFields : plan.kind === 'giveaway' ? `${channelField}<label>الجائزة<input id="aiPrize" maxlength="160" value="${esc(plan.prize)}"></label><div class="form-grid two"><label>المدة بالدقائق<input id="aiDuration" type="number" min="5" max="43200" value="${Number(plan.durationMinutes)}"></label><label>عدد الفائزين<input id="aiWinners" type="number" min="1" max="20" value="${Number(plan.winnerCount)}"></label></div><p class="form-note">ينشر البوت زر مشاركة ويسحب الفائزين عشوائيًا عند انتهاء المدة.</p>` : plan.kind === 'poll' ? `${channelField}<label>السؤال<input id="aiPollQuestion" maxlength="180" value="${esc(plan.question)}"></label>${plan.options.map((option, index) => `<label>الخيار ${index + 1}<input data-ai-poll-option maxlength="70" value="${esc(option)}"></label>`).join('')}<p class="form-note">يسمح الاستطلاع بصوت واحد لكل عضو، ويمكنه تغيير اختياره. تظهر النتائج له بعد التصويت.</p>` : `${channelField}<label>عنوان لوحة الدعم<input id="aiTicketTitle" maxlength="100" value="${esc(plan.title)}"></label><label>الوصف<textarea id="aiTicketDescription" maxlength="800" rows="3">${esc(plan.description)}</textarea></label><label>تصنيف التذاكر (اختياري)<select id="aiTicketCategory"><option value="">دون تصنيف</option>${(state.data.channels || []).filter(channel => channel.type === 4).map(channel => `<option value="${esc(channel.id)}">${esc(channel.name)}</option>`).join('')}</select></label><label>رتبة فريق الدعم (مطلوبة)<select id="aiStaffRole"><option value="">اختر رتبة الدعم</option>${(state.data.roles || []).filter(role => role.id !== guild).map(role => `<option value="${esc(role.id)}">${esc(role.name)}</option>`).join('')}</select></label><p class="form-note">يفتح زر الدعم قناة خاصة لكل عضو. التذكرة خاصة بصاحبها ورتبة الدعم المحددة.</p>`;
       modal(plan.kind === 'giveaway' ? 'مراجعة الجيف آواي' : plan.kind === 'poll' ? 'مراجعة الاستطلاع' : plan.kind === 'download' ? 'مراجعة بطاقة تحميل الملف' : 'مراجعة لوحة تذاكر الدعم', `${fields}${plan.kind !== 'poll' ? '<label>بنر اختياري يظهر مع البطاقة<input id="aiInteractiveImage" type="file" accept="image/png,image/jpeg,image/webp"></label><label>موضع البنر<select id="aiInteractiveImagePosition"><option value="above">فوق التفاصيل</option><option value="below">تحت التفاصيل</option></select></label>' : ''}<section class="ai-discord-preview" aria-label="معاينة قبل النشر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>شكل تقريبي يتحدث مع تعديل الحقول · لا ينشر شيئًا</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${channels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiPreviewChannelName"># اختر قناة النشر</div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div>${item.has_attachment && plan.kind !== 'poll' ? `<img class="ai-discord-banner" src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="البنر المرفق">` : ''}<div class="ai-discord-embed"><b id="aiPreviewTitle"></b><p id="aiPreviewDescription"></p><small id="aiPreviewMeta"></small></div><span class="ai-discord-button" id="aiPreviewButton"></span></div>${previewMemberRail()}</div></section><label class="check-row"><input id="aiInteractiveConfirmed" type="checkbox">راجعت الإعدادات وأوافق على النشر في Discord.</label>`, '<button class="btn secondary" id="aiInteractiveCancel">إلغاء</button><button class="btn primary" id="aiInteractiveLaunch" disabled>نعم، أؤكد التنفيذ</button>');
+      if (plan.kind === 'giveaway') {
+        $('#aiPrize').closest('label').insertAdjacentHTML('beforebegin', `<label>عنوان الجيف آواي<input id="aiGiveawayTitle" maxlength="180" value="${esc(plan.title || (plan.prize ? `🎉 جيف آواي: ${plan.prize}` : '🎉 جيف آواي مميز'))}"></label><label>النص الذي سيظهر للأعضاء<textarea id="aiGiveawayDescription" maxlength="1000" rows="3">${esc(plan.description || 'شارك الآن بالضغط على الزر، ونتمنى لك حظًا سعيدًا!')}</textarea></label><label>لون بطاقة الجيف آواي<input id="aiGiveawayColor" type="color" value="#8b5cf6"></label>`);
+        $('#aiInteractiveImage').accept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime';
+        $('#aiInteractiveImage').closest('label').firstChild.textContent = 'صورة أو GIF أو فيديو MP4/MOV (حتى 20 ميجابايت)';
+      }
       if ($('#aiInteractiveImagePosition')) $('#aiInteractiveImagePosition').onchange = event => {
         const preview = $('.ai-discord-preview'), banner = preview.querySelector('.ai-discord-banner'), details = preview.querySelector('.ai-discord-embed');
         if (!banner) return;
@@ -552,19 +583,22 @@ async function assistant() {
         if (previewImageUrl) URL.revokeObjectURL(previewImageUrl);
         const file = event.target.files[0]; if (!file) return;
         previewImageUrl = URL.createObjectURL(file);
+        const video = file.type.startsWith('video/');
         let banner = $('.ai-discord-banner');
-        if (!banner) { banner = document.createElement('img'); banner.className = 'ai-discord-banner'; banner.alt = 'معاينة البنر'; $('.ai-discord-embed').before(banner); }
+        if (!banner || banner.tagName.toLowerCase() !== (video ? 'video' : 'img')) { const replacement = document.createElement(video ? 'video' : 'img'); replacement.className = 'ai-discord-banner'; if (video) replacement.controls = true; else replacement.alt = 'معاينة البنر'; if (banner) banner.replaceWith(replacement); else $('.ai-discord-embed').before(replacement); banner = replacement; }
         banner.src = previewImageUrl;
+        if (video) { $('#aiInteractiveImagePosition').value = 'below'; $('#aiInteractiveImagePosition').disabled = true; } else $('#aiInteractiveImagePosition').disabled = false;
         $('#aiInteractiveImagePosition').dispatchEvent(new Event('change'));
       };
       const updateInteractivePreview = () => {
         const value = selector => document.querySelector(selector)?.value?.trim() || '';
-        const title = plan.kind === 'giveaway' ? `🎉 ${value('#aiPrize') || 'الجائزة'}` : plan.kind === 'poll' ? value('#aiPollQuestion') || 'سؤال الاستطلاع' : plan.kind === 'download' ? value('#aiDownloadTitle') || 'عنوان الملف' : value('#aiTicketTitle') || 'عنوان لوحة الدعم';
-        const description = plan.kind === 'giveaway' ? `مدة المشاركة: ${value('#aiDuration') || '—'} دقيقة · عدد الفائزين: ${value('#aiWinners') || '—'}` : plan.kind === 'poll' ? [...document.querySelectorAll('[data-ai-poll-option]')].map((field, index) => `${index + 1}. ${field.value.trim()}`).join('\n') : plan.kind === 'download' ? value('#aiDownloadDescription') : value('#aiTicketDescription');
+        const title = plan.kind === 'giveaway' ? value('#aiGiveawayTitle') || 'عنوان الجيف آواي' : plan.kind === 'poll' ? value('#aiPollQuestion') || 'سؤال الاستطلاع' : plan.kind === 'download' ? value('#aiDownloadTitle') || 'عنوان الملف' : value('#aiTicketTitle') || 'عنوان لوحة الدعم';
+        const description = plan.kind === 'giveaway' ? `${value('#aiGiveawayDescription')}\n\nالجائزة: ${value('#aiPrize') || '—'}\nمدة المشاركة: ${value('#aiDuration') || '—'} دقيقة · عدد الفائزين: ${value('#aiWinners') || '—'}` : plan.kind === 'poll' ? [...document.querySelectorAll('[data-ai-poll-option]')].map((field, index) => `${index + 1}. ${field.value.trim()}`).join('\n') : plan.kind === 'download' ? value('#aiDownloadDescription') : value('#aiTicketDescription');
         const channel = $('#aiInteractiveChannel').selectedOptions[0]?.textContent || 'اختر قناة النشر';
         $('#aiPreviewChannelName').textContent = channel.startsWith('#') ? channel : `# ${channel}`;
         document.querySelectorAll('[data-preview-channel]').forEach(entry => entry.classList.toggle('active', entry.dataset.previewChannel === $('#aiInteractiveChannel').value));
         $('#aiPreviewTitle').textContent = title;
+        if (plan.kind === 'giveaway') $('.ai-discord-embed').style.borderColor = $('#aiGiveawayColor').value;
         $('#aiPreviewDescription').textContent = description || 'سيظهر وصفك هنا.';
         $('#aiPreviewMeta').textContent = `قناة النشر: ${channel}${plan.kind === 'download' && $('#aiDownloadFile').files[0] ? ` · ${$('#aiDownloadFile').files[0].name}` : ''}`;
         $('#aiPreviewButton').textContent = plan.kind === 'giveaway' ? '🎉 مشاركة' : plan.kind === 'poll' ? '📊 تصويت' : plan.kind === 'download' ? '⬇ تحميل الملف' : '🎫 فتح تذكرة دعم';
@@ -586,7 +620,8 @@ async function assistant() {
         const creatingSupportChannel = plan.kind === 'tickets' && $('#aiInteractiveChannel').value === '__create__';
         if (!$('#aiInteractiveChannel').value || (plan.kind === 'giveaway' && (!$('#aiPrize').value.trim() || !$('#aiDuration').value)) || (plan.kind === 'poll' && (!$('#aiPollQuestion').value.trim() || [...document.querySelectorAll('[data-ai-poll-option]')].some(field => !field.value.trim()))) || (plan.kind === 'tickets' && (!$('#aiTicketTitle').value.trim() || !$('#aiTicketDescription').value.trim() || !$('#aiStaffRole').value))) throw Error('أكمل الحقول المطلوبة في بطاقة المراجعة قبل النشر.');
         const imageFile = $('#aiInteractiveImage')?.files[0];
-        const body = { confirmed: true, channelId: creatingSupportChannel ? '' : $('#aiInteractiveChannel').value, imagePosition: $('#aiInteractiveImagePosition')?.value || 'above', image: imageFile ? await prepareAiImage(imageFile) : undefined, ...(plan.kind === 'giveaway' ? { prize: $('#aiPrize').value, durationMinutes: Number($('#aiDuration').value), winnerCount: Number($('#aiWinners').value) } : plan.kind === 'poll' ? { question: $('#aiPollQuestion').value, options: [...document.querySelectorAll('[data-ai-poll-option]')].map(field => field.value) } : { title: $('#aiTicketTitle').value, description: $('#aiTicketDescription').value, categoryId: $('#aiTicketCategory').value, staffRoleId: $('#aiStaffRole').value, ...(creatingSupportChannel ? { createChannelName: $('#aiNewSupportChannel').value } : {}) }) };
+        const animated = imageFile && ['image/gif', 'video/mp4', 'video/quicktime'].includes(imageFile.type);
+        const body = { confirmed: true, channelId: creatingSupportChannel ? '' : $('#aiInteractiveChannel').value, imagePosition: $('#aiInteractiveImagePosition')?.value || 'above', image: imageFile && !animated ? await prepareAiImage(imageFile) : undefined, media: animated ? await prepareAiMedia(imageFile) : undefined, ...(plan.kind === 'giveaway' ? { title: $('#aiGiveawayTitle').value, description: $('#aiGiveawayDescription').value, color: $('#aiGiveawayColor').value, prize: $('#aiPrize').value, durationMinutes: Number($('#aiDuration').value), winnerCount: Number($('#aiWinners').value) } : plan.kind === 'poll' ? { question: $('#aiPollQuestion').value, options: [...document.querySelectorAll('[data-ai-poll-option]')].map(field => field.value) } : { title: $('#aiTicketTitle').value, description: $('#aiTicketDescription').value, categoryId: $('#aiTicketCategory').value, staffRoleId: $('#aiStaffRole').value, ...(creatingSupportChannel ? { createChannelName: $('#aiNewSupportChannel').value } : {}) }) };
         await api(`/api/ai/requests/${encodeURIComponent(item.id)}/launch-interactive`, { method: 'POST', body: JSON.stringify(body) });
         closeDialog(); await loadMessages(); toast('نُشر النظام التفاعلي في Discord.');
       } catch (error) { modalError(error); $('#aiInteractiveLaunch').disabled = false; } };
