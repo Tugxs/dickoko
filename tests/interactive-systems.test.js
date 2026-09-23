@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discordMessageOptions, processDueGiveaways } from '../lib/interactive-systems.js';
+import { discordMessageOptions, processDueGiveaways, resolvePublicationChannel } from '../lib/interactive-systems.js';
+
+test('support panel reuses an existing channel and creates a missing one only after confirmation', async () => {
+  const calls = [];
+  const discordBotFetch = async (path, options) => { calls.push({ path, options }); return { ok: true, data: { id: 'new-support', name: 'الدعم', type: 0 } }; };
+  const existing = await resolvePublicationChannel({ guildId: 'guild', channels: [{ id: 'support', name: 'الدعم', type: 0 }], createChannelName: 'الدعم', allowCreate: true, discordBotFetch });
+  assert.equal(existing.channel.id, 'support');
+  assert.equal(existing.createdChannelId, null);
+  assert.equal(calls.length, 0);
+  const created = await resolvePublicationChannel({ guildId: 'guild', channels: [], createChannelName: 'الدعم', allowCreate: true, discordBotFetch });
+  assert.equal(created.createdChannelId, 'new-support');
+  assert.equal(calls[0].path, '/guilds/guild/channels');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { name: 'الدعم', type: 0 });
+  const noCreate = await resolvePublicationChannel({ guildId: 'guild', channels: [], createChannelName: 'الدعم', allowCreate: false, discordBotFetch });
+  assert.equal(noCreate.channel, undefined);
+  assert.equal(calls.length, 1);
+});
 
 test('ticket banner renders before the support description and keeps the open button', () => {
   const options = discordMessageOptions({ content: '🎫 **الدعم**', embeds: [{ description: 'افتح تذكرة' }], components: [{ type: 1, components: [{ type: 2, label: 'فتح تذكرة' }] }] }, { mime: 'image/png', base64: 'aGVsbG8=' });

@@ -13,9 +13,11 @@ test('a support panel request becomes a ticket system rather than a plain post',
   });
 });
 
-test('explicit text-only requests stay text and unknown channels cannot launch a panel', () => {
+test('explicit text-only requests stay text and missing channels can be proposed for creation', () => {
   const proposal = { executeNow: true, message: { channel: '121', content: 'صياغة' } };
   assert.equal(alignAiProposalWithIntent(proposal, [{ role: 'user', content: 'اكتب نص لوحة دعم فقط' }], channels), proposal);
-  assert.equal(alignAiProposalWithIntent({ ...proposal, message: { channel: 'missing', content: 'صياغة' } }, [{ role: 'user', content: 'أنشئ لوحة دعم' }], channels).message, null);
+  const missing = alignAiProposalWithIntent({ ...proposal, message: { channel: 'missing', content: 'صياغة' } }, [{ role: 'user', content: 'أنشئ لوحة دعم' }]);
+  assert.equal(missing.message, null);
+  assert.equal(missing.interactive.channel, 'missing');
 });
 

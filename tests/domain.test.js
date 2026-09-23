@@ -30,6 +30,14 @@ test('matching channels uses exact category, including uncategorized channels', 
 test('voice templates create voice channels', () => {
   assert.equal(operationBody({ resource_type: 'channel', name: 'Lounge', type: 2 }).type, 2);
 });
+test('AI can build categories and place channels inside them in one reviewed plan', () => {
+  const [category, channel] = normalizeOperations([{ resource_type: 'category', name: 'الدعم' }, { resource_type: 'channel', name: 'فتح-تذكرة', parent_name: 'الدعم' }], snapshot);
+  assert.equal(channel.parent_key, category.operation_key);
+  assert.equal(operationBody(channel, 'new-category').parent_id, 'new-category');
+  const [existing] = normalizeOperations([{ resource_type: 'channel', name: 'hello', parent_name: 'Welcome' }], snapshot);
+  assert.equal(existing.parent_id, 'category');
+  assert.throws(() => normalizeOperations([{ resource_type: 'channel', name: 'bad', parent_name: 'غير موجود' }], snapshot));
+});
 test('channel topics, forums and ordering are normalized for reviewed execution', () => {
   const [created] = normalizeOperations([{ resource_type: 'channel', name: 'المنتدى', type: 15, topic: 'ناقش أفكار المجتمع', position: 3 }], snapshot);
   assert.deepEqual(operationBody(created), { name: 'المنتدى', type: 15, topic: 'ناقش أفكار المجتمع' });
@@ -48,3 +56,4 @@ test('invalid schedule time, size and timezone are rejected', () => {
   assert.throws(() => normalizeSchedule({ ...valid, timezone: 'bad-zone' }, 0));
   assert.throws(() => normalizeSchedule({ ...valid, run_at: 'invalid' }, 0));
 });
+
