@@ -12,6 +12,7 @@ let state = {
   online: false,
   username: null,
   guilds: 0,
+  memberJoins: false,
   error: null,
   commands: { registered: 0, failed: 0 },
 };
@@ -100,6 +101,25 @@ export function getDiscordBotStatus() {
   return { ...state };
 }
 
+async function enableMemberJoinEvents(token) {
+  const endpoint = 'https://discord.com/api/v10/applications/@me';
+  const headers = { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' };
+  try {
+    const current = await fetch(endpoint, { headers, signal: AbortSignal.timeout(12000) });
+    if (!current.ok) throw Error(`application fetch ${current.status}`);
+    const application = await current.json();
+    const flags = Number(application.flags || 0);
+    if ((flags & (1 << 14)) || (flags & (1 << 15))) return true;
+    const enabled = await fetch(endpoint, { method: 'PATCH', headers, body: JSON.stringify({ flags: flags | (1 << 15) }), signal: AbortSignal.timeout(12000) });
+    if (!enabled.ok) throw Error(`member intent update ${enabled.status}`);
+    const updated = await enabled.json();
+    return Boolean(Number(updated.flags || 0) & ((1 << 14) | (1 << 15)));
+  } catch (error) {
+    console.error('Member join intent unavailable; continuing without it:', error.message);
+    return false;
+  }
+}
+
 export async function startDiscordBot({ pool } = {}) {
   databasePool = pool || null;
   const token = process.env.DISCORD_BOT_TOKEN;
@@ -108,7 +128,9 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers] });
+  const memberJoins = await enableMemberJoinEvents(token);
+  state.memberJoins = memberJoins;
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])] });
 
   client.on(Events.GuildMemberAdd, member => {
     if (databasePool) void sendWelcomeCard(member, databasePool).catch(error => console.error('Welcome card delivery failed', member.guild.id, error.message));
@@ -131,6 +153,7 @@ export async function startDiscordBot({ pool } = {}) {
       online: true,
       username: readyClient.user.username,
       guilds: readyClient.guilds.cache.size,
+      memberJoins,
       error: null,
       commands: { registered: 0, failed: 0 },
     };
