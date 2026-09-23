@@ -7,6 +7,9 @@ const inference = (process.env.LOCAL_AI_URL || 'http://127.0.0.1:11434').replace
 const provider = process.env.LOCAL_AI_PROVIDER || 'llama';
 const token = process.env.AI_WORKER_TOKEN;
 const model = process.env.AI_MODEL || 'Qwen3-4B-Q4_K_M.gguf';
+const visionModel = process.env.AI_VISION_MODEL || '';
+const visionInference = (process.env.AI_VISION_URL || inference).replace(/\/$/, '');
+const visionProvider = process.env.AI_VISION_PROVIDER || provider;
 if (!token) throw new Error('AI_WORKER_TOKEN is required');
 
 let stopping = false;
@@ -38,6 +41,15 @@ async function generate(messages, maxTokens = 700, temperature = 0.35) {
   return String(provider === 'ollama' ? body.message?.content || '' : body.choices?.[0]?.message?.content || '').trim();
 }
 
+async function describeImage(image, prompt) {
+  if (!visionModel || !image?.base64 || !['image/png', 'image/jpeg', 'image/webp'].includes(image.mime)) return '';
+  const instruction = `صف العناصر والنصوص الظاهرة في الصورة بدقة بالعربية لمساعدة مدير سيرفر Discord. ركز على واجهة التذكرة والأزرار والصلاحيات إن ظهرت. لا تفترض شيئًا غير ظاهر. طلب المستخدم: ${prompt}`;
+  const body = visionProvider === 'ollama'
+    ? await request(`${visionInference}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: visionModel, stream: false, messages: [{ role: 'user', content: instruction, images: [image.base64] }], options: { num_predict: 450, temperature: 0.1 } }) })
+    : await request(`${visionInference}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: visionModel, stream: false, max_tokens: 450, messages: [{ role: 'user', content: [{ type: 'text', text: instruction }, { type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.base64}` } }] }] }) });
+  return String(visionProvider === 'ollama' ? body.message?.content || '' : body.choices?.[0]?.message?.content || '').trim().slice(0, 1800);
+}
+
 async function respond(job) {
   const guild = job.guild_context || {};
   const context = Array.isArray(job.context) ? job.context.filter(item => ['user', 'assistant'].includes(item?.role) && typeof item.content === 'string').slice(-12) : [];
@@ -52,11 +64,11 @@ async function respond(job) {
     'إذا طلب المستخدم اختبارًا أو ردًا قصيرًا، نفّذ المطلوب مباشرة ولا تسأله إن كان يريد الاختبار. لا تذكر معرّف السيرفر الرقمي إلا إذا طلبه.',
     'المنصة تقدر تنشئ رتبًا وقنوات، وتعدل أسماءها ووصف القنوات ولون الرتب، بعد عرض خطة للمراجعة وتأكيد المستخدم في الواجهة. لا يمكن حذف العناصر تلقائيًا. لا تقل تم التنفيذ قبل نجاح Discord فعليًا.',
     'معلومات ديسكوكو: يمكن مراجعة وإنشاء الرتب والقنوات، ونشر رسالة واحدة مع صورة. يمكن كذلك تشغيل جيف آواي تفاعلي، ولوحة تذاكر دعم تتيح فتح التذكرة وإغلاقها وإعادة فتحها واستلامها من فريق الدعم فقط، واستطلاع بخيارين إلى خمسة خيارات مع تصويت مباشر ونتائج بعد التصويت، وبطاقة تحميل ملف بزر تنزيل. كل هذا يظهر للمراجعة والتأكيد قبل النشر. الإملاء الصوتي يحول كلام العميل إلى نص قبل الإرسال.',
-    'تصميم نظام الدعم: لوحة عامة في قناة يحددها العميل، بعنوان ووصف وبنر اختياري وزر «فتح تذكرة دعم». الضغط ينشئ قناة خاصة جديدة لا يراها إلا صاحب الطلب وفريق الدعم الذي اختاره مدير السيرفر. يظهر لصاحب التذكرة زر الإغلاق، ويستلمها صاحب رتبة الدعم أو مدير السيرفر عبر /diskoko claim داخل التذكرة، مع تحقق فعلي من الصلاحية. لا تعرض استلام التذكرة كزر عام لكل العملاء. يمكن إعادة فتح التذكرة بعد الإغلاق. لا تصف لوحة الدعم كرسالة نصية عادية. اسأل عن قناة النشر إن غابت، وتُختار رتبة فريق الدعم في بطاقة المراجعة.',
+    'تصميم نظام الدعم: لوحة عامة في قناة يحددها العميل، بعنوان ووصف وبنر اختياري وزر «فتح تذكرة دعم». الضغط ينشئ قناة خاصة جديدة لا يراها إلا صاحب الطلب وفريق الدعم الذي اختاره مدير السيرفر. يظهر لصاحب التذكرة زر الإغلاق فقط. استلامها وإعادة فتحها من إجراءات الفريق المصرح له بعد تحقق البوت؛ لا تذكر أمر الفريق داخل رسالة العميل، ولا تعرض له زر الاستلام أو إعادة الفتح. لا تصف لوحة الدعم كرسالة نصية عادية. تُختار رتبة فريق الدعم في بطاقة المراجعة.',
     'تصميم البطاقات: حدّد هدف البطاقة، عنوانًا قصيرًا، وصفًا واضحًا، وزرًا له وظيفة حقيقية. الجيف آواي: بنر اختياري فوق نص الجائزة والمدة وعدد الفائزين، ثم زر مشاركة يسجل العضو. الدعم: بنر اختياري، عنوان ووصف، ثم زر يفتح تذكرة خاصة. التحميل: بنر اختياري، اسم الملف ووصفه، وزر تنزيل؛ يُرفع الملف عند بطاقة المراجعة لا داخل ردك النصي. لا تعد بزخارف أو أزرار لا يدعمها Discord.',
     'صياغة المحتوى: استعمل اسم السيرفر الحقيقي أو اسم العميل المذكور فقط. لا تخترع علامة تجارية أو اختصارًا مثل HAC. اجعل النص مناسبًا للنشر مباشرة، مختصرًا، واضحًا، وبلا عبارات عامة زائدة. الصورة المرفقة تُعرض في بطاقة المراجعة وتُنشر كبنر بعد موافقة المستخدم، لكنك لا ترى تفاصيلها.',
     'الألعاب من مكتبة الاقتراحات هي أفكار وتصميمات نصية فقط حاليًا، وليست ألعابًا منشورة أو قابلة للتشغيل بزر. إذا طلب المستخدم إنشاء اللعبة أو سأل أين هي، قل بوضوح إنها لم تُنشر وإن التنفيذ التفاعلي للألعاب غير متاح بعد. لا تحوّل اللعبة إلى رتبة أو ترحيب أو رسالة عامة، ولا تدّع أنها بدأت.',
-    ...(job.has_attachment ? ['أرفق المستخدم صورة مع رسالته. النموذج الحالي نصي ولا يستطيع رؤية محتوى الصورة؛ لا تصفها أو تدّعِ أنك حللتها. أخبره عند الحاجة أن الصورة محفوظة مع الرسالة وسترفق مع رسالة Discord بعد مراجعتها.'] : []),
+    ...(job.image_analysis ? ['وصف الصورة التالي من نموذج رؤية محلي منفصل، وليس ملاحظة مباشرة منك. استخدمه مع كلام العميل ولا تضف تفاصيل غير مذكورة.'] : job.has_attachment ? ['أرفق المستخدم صورة مع رسالته، لكن نموذج الرؤية غير متصل؛ لا تصف الصورة أو تدّعِ أنك حللتها. وضح هذا الحد باختصار إذا كان سؤاله يعتمد على الصورة.'] : []),
     'توزيع رتبة تلقائيًا على كل عضو جديد غير مفعّل حاليًا، ولا يُنجزه إنشاء الرتبة وحده. إذا طلبه العميل، وضّح هذا الفرق باختصار ولا تقل إنه تم.',
     'الصلاحيات الحساسة مثل Administrator لا تُمنح تلقائيًا. لا تصف صلاحية Discord غير مدعومة كأنها جاهزة، ولا تستخدم أسماء صلاحيات مختلقة.',
     'عند طلب جيف آواي، اسأل فقط عن التفاصيل الناقصة الضرورية: الجائزة، مدة المشاركة، عدد الفائزين، والقناة. عند طلب تذاكر دعم، إذا لا توجد قناة نشر مناسبة فاقترح إنشاء قناة باسم «الدعم» ضمن بطاقة المراجعة، ولا تتوقف عند سؤال عن قناة غير موجودة. لا تعد بشيء غير موجود مثل نماذج حقول متعددة أو أرشفة خارج Discord.',
@@ -68,7 +80,7 @@ async function respond(job) {
     '/no_think',
   ].join('\n');
   const previousUserMessages = context.filter(item => item.role === 'user').length;
-  const messages = [{ role: 'system', content: `${system}\nعدد رسائل المستخدم السابقة في هذه المحادثة: ${previousUserMessages}. لا تحسب الرسالة الحالية ضمن هذا العدد. افهم نية المستخدم من المعنى والسياق، لا من كلمة محددة. لا تستخدم مطلقًا عبارات «تم التنفيذ» أو «تم النشر» أو «تم الإنشاء»؛ التنفيذ لا يحدث داخل النموذج، بل بعد بطاقة المراجعة ونجاح Discord.` }, ...context, { role: 'user', content: job.prompt }];
+  const messages = [{ role: 'system', content: `${system}\nعدد رسائل المستخدم السابقة في هذه المحادثة: ${previousUserMessages}. لا تحسب الرسالة الحالية ضمن هذا العدد. افهم نية المستخدم من المعنى والسياق، لا من كلمة محددة. لا تستخدم مطلقًا عبارات «تم التنفيذ» أو «تم النشر» أو «تم الإنشاء»؛ التنفيذ لا يحدث داخل النموذج، بل بعد بطاقة المراجعة ونجاح Discord.` }, ...context, { role: 'user', content: job.image_analysis ? `${job.prompt}\nوصف الصورة المرفقة: ${job.image_analysis}` : job.prompt }];
   let answer = await generate(messages);
   if (!answer) throw new Error('النموذج لم يرجع إجابة');
   const priorAnswers = context.filter(item => item.role === 'assistant').map(item => item.content);
@@ -90,7 +102,7 @@ async function respond(job) {
 }
 
 async function propose(job, context, guild, answer) {
-  const recent = [...context, { role: 'user', content: job.prompt }].slice(-13).map(item => `${item.role}: ${item.content}`).join('\n');
+  const recent = [...context, { role: 'user', content: job.image_analysis ? `${job.prompt}\nوصف الصورة: ${job.image_analysis}` : job.prompt }].slice(-13).map(item => `${item.role}: ${item.content}`).join('\n');
   const instructions = [
     'حلل نية آخر رسالة مستخدم اعتمادًا على المحادثة. لا تعتمد على قائمة كلمات ثابتة.',
     'ضع executeNow=true فقط إذا كان المستخدم في رسالته الأخيرة يطلب بوضوح تطبيق أو نشر النسخة المتفق عليها الآن، أو يؤكد البدء بعد عرض مسودة. الموافقة على جودة النص أو قول إنه ممتاز دون طلب النشر ليست تنفيذًا. السؤال والاستكشاف وطلب تعديل إضافي ليست تنفيذًا.',
@@ -131,7 +143,14 @@ while (!stopping) {
     const { request: job } = await request(`${site}/api/ai/worker/next`, { headers: { Authorization: `Bearer ${token}`, 'X-AI-Model': model } });
     if (!job) { await delay(3000); continue; }
     let result;
-    try { result = await respond(job); }
+    try {
+      if (job.image && visionModel) {
+        try { job.image_analysis = await describeImage(job.image, job.prompt); }
+        catch (error) { console.error('Vision model unavailable:', error.message); }
+      }
+      delete job.image;
+      result = await respond(job);
+    }
     catch (error) { console.error('Model error:', error.message); result = { error: 'تعذر توليد الرد من النموذج المحلي. حاول مجددًا بعد التحقق من تشغيله.' }; }
     await request(`${site}/api/ai/worker/${job.id}/complete`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(result) });
     console.log(`Completed AI request ${job.id}`);

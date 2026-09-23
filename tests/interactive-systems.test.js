@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { claimSupportTicket, discordMessageOptions, processDueGiveaways, repairLegacyTicketControls, resolvePublicationChannel } from '../lib/interactive-systems.js';
+import { claimSupportTicket, discordMessageOptions, processDueGiveaways, reopenSupportTicket, repairLegacyTicketControls, resolvePublicationChannel } from '../lib/interactive-systems.js';
 
 test('only support role or server manager can claim a ticket', async () => {
   const replies = [];
@@ -23,10 +23,36 @@ test('old ticket messages lose the visible claim button', async () => {
   const edits = [];
   const message = { author: { id: 'bot' }, components: [{ components: [{ customId: 'diskoko:claim:panel' }, { customId: 'diskoko:close:panel' }] }], edit: async payload => edits.push(payload) };
   const bot = { user: { id: 'bot' }, channels: { fetch: async () => ({ messages: { fetch: async () => new Map([['intro', message]]) } }) } };
-  const pool = { query: async () => ({ rows: [{ panel_id: 'panel', channel_id: 'ticket-channel' }] }) };
+  const pool = { query: async () => ({ rows: [{ panel_id: 'panel', channel_id: 'ticket-channel', user_id: 'customer', status: 'open' }] }) };
   await repairLegacyTicketControls(bot, pool);
   assert.equal(edits.length, 1);
   assert.equal(edits[0].components[0].components[0].custom_id, 'diskoko:close:panel');
+});
+
+test('old closed tickets lose the customer reopen button', async () => {
+  const edits = [];
+  const message = { author: { id: 'bot' }, components: [{ components: [{ customId: 'diskoko:reopen:panel' }] }], edit: async payload => edits.push(payload) };
+  const bot = { user: { id: 'bot' }, channels: { fetch: async () => ({ messages: { fetch: async () => new Map([['closed', message]]) } }) } };
+  const pool = { query: async () => ({ rows: [{ panel_id: 'panel', channel_id: 'ticket-channel', user_id: 'customer', status: 'closed' }] }) };
+  await repairLegacyTicketControls(bot, pool);
+  assert.deepEqual(edits[0].components, []);
+  assert.doesNotMatch(edits[0].content, /إعادة فتح/);
+});
+
+test('customer cannot reopen a closed ticket; support staff can', async () => {
+  const replies = []; let reopened = 0;
+  const pool = { async query(sql) {
+    if (sql.startsWith('SELECT t.id')) return { rows: [{ id: 'ticket', panel_id: 'panel', user_id: 'customer', status: 'closed', staff_role_id: 'support' }] };
+    if (sql.startsWith('SELECT channel_id')) return { rows: [] };
+    if (sql.startsWith('UPDATE diskoko_tickets SET status')) { reopened++; return { rowCount: 1 }; }
+    throw Error(sql);
+  } };
+  const interaction = { guildId: 'guild', channelId: 'ticket-channel', user: { id: 'customer' }, member: { roles: { cache: new Map() } }, memberPermissions: { has: () => false }, editReply: async text => replies.push(text), channel: { permissionOverwrites: { edit: async () => {} }, send: async () => {} } };
+  await reopenSupportTicket(interaction, pool);
+  assert.equal(reopened, 0);
+  interaction.user.id = 'agent'; interaction.member.roles.cache.set('support', {});
+  await reopenSupportTicket(interaction, pool);
+  assert.equal(reopened, 1);
 });
 
 test('support panel reuses an existing channel and creates a missing one only after confirmation', async () => {
@@ -50,6 +76,10 @@ test('ticket banner renders before the support description and keeps the open bu
   const payload = JSON.parse(options.body.get('payload_json'));
   assert.equal(payload.embeds[0].image.url, 'attachment://diskoko-banner.png');
   assert.equal(payload.embeds[1].description, 'افتح تذكرة');
+  const below = discordMessageOptions({ embeds: [{ description: 'افتح تذكرة' }] }, { mime: 'image/png', base64: 'aGVsbG8=' }, 'below');
+  const belowPayload = JSON.parse(below.body.get('payload_json'));
+  assert.equal(belowPayload.embeds[0].description, 'افتح تذكرة');
+  assert.equal(belowPayload.embeds[1].image.url, 'attachment://diskoko-banner.png');
   assert.equal(payload.components[0].components[0].label, 'فتح تذكرة');
 });
 

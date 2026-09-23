@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
-import { claimSupportTicket, handleInteractiveButton, repairLegacyTicketControls } from './lib/interactive-systems.js';
+import { claimSupportTicket, handleInteractiveButton, reopenSupportTicket, repairLegacyTicketControls } from './lib/interactive-systems.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -19,7 +19,8 @@ let state = {
 const COMMANDS = [
   BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك'))
     .addSubcommand(command => command.setName('ai').setDescription('اسأل AI ديسكوكو عن تنظيم سيرفرك').addStringOption(option => option.setName('prompt').setDescription('ما الذي تريد تنظيمه؟').setRequired(true).setMaxLength(1000)))
-    .addSubcommand(command => command.setName('claim').setDescription('استلام تذكرة الدعم الحالية — لفريق الدعم فقط')),
+    .addSubcommand(command => command.setName('claim').setDescription('استلام تذكرة الدعم الحالية — لفريق الدعم فقط'))
+    .addSubcommand(command => command.setName('reopen').setDescription('إعادة فتح تذكرة الدعم الحالية — لفريق الدعم فقط')),
 ];
 const COMMAND_JSON = COMMANDS.map((command) => command.toJSON());
 const DEFAULT_SETTINGS = { enabled: true, command_keys: [...DEFAULT_BOT_COMMAND_KEYS], log_channel_id: null, locale: "ar", welcome_enabled: false };
@@ -172,6 +173,12 @@ export async function startDiscordBot({ pool } = {}) {
       if (!settings.enabled) return interaction.reply({ content: 'البوت غير مفعّل لهذا السيرفر.', ephemeral: true });
       try { await interaction.deferReply({ ephemeral: true }); await claimSupportTicket(interaction, databasePool); }
       catch (error) { console.error('Ticket claim command failed', error); if (interaction.deferred || interaction.replied) await interaction.editReply('تعذر استلام التذكرة الآن. حاول مجددًا.').catch(() => {}); }
+      return;
+    }
+    if (subcommand === 'reopen') {
+      if (!settings.enabled) return interaction.reply({ content: 'البوت غير مفعّل لهذا السيرفر.', ephemeral: true });
+      try { await interaction.deferReply({ ephemeral: true }); await reopenSupportTicket(interaction, databasePool); }
+      catch (error) { console.error('Ticket reopen command failed', error); if (interaction.deferred || interaction.replied) await interaction.editReply('تعذرت إعادة فتح التذكرة الآن. حاول مجددًا.').catch(() => {}); }
       return;
     }
     if (subcommand === 'ai') {
