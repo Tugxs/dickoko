@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
-import { claimSupportTicket, handleInteractiveButton, reopenSupportTicket, repairLegacyTicketControls } from './lib/interactive-systems.js';
+import { claimSupportTicket, handleInteractiveButton, reopenSupportTicket, repairLegacyTicketControls, sendWelcomeCard } from './lib/interactive-systems.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -108,7 +108,11 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers] });
+
+  client.on(Events.GuildMemberAdd, member => {
+    if (databasePool) void sendWelcomeCard(member, databasePool).catch(error => console.error('Welcome card delivery failed', member.guild.id, error.message));
+  });
 
   // Count events only after an administrator opts in. Never read or store message content.
   client.on(Events.MessageCreate, async (message) => {
@@ -219,4 +223,5 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 }
+
 

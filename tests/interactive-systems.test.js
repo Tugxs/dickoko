@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { claimSupportTicket, discordMessageOptions, processDueGiveaways, reopenSupportTicket, repairLegacyTicketControls, resolvePublicationChannel } from '../lib/interactive-systems.js';
+import { claimSupportTicket, discordMessageOptions, handleInteractiveButton, pollMessageOptions, processDueGiveaways, reopenSupportTicket, repairLegacyTicketControls, resolvePublicationChannel, sendWelcomeCard } from '../lib/interactive-systems.js';
 
 test('only support role or server manager can claim a ticket', async () => {
   const replies = [];
@@ -94,6 +94,44 @@ test('giveaway GIF remains animated and video is attached without an invalid ima
   assert.equal(videoPayload.embeds.length, 1);
   assert.equal(videoPayload.embeds[0].title, 'مسابقة');
   assert.equal(video.body.get('files[0]').type, 'video/mp4');
+});
+
+test('poll question and option images attach to the matching embeds', () => {
+  const png = { mime: 'image/png', base64: Buffer.from('89504e470d0a1a0a0000', 'hex').toString('base64') };
+  const message = { embeds: [{ title: 'السؤال' }, { description: 'الخيار الأول' }, { description: 'الخيار الثاني' }], components: [] };
+  const result = pollMessageOptions(message, png, [png, null]);
+  const payload = JSON.parse(result.body.get('payload_json'));
+  assert.equal(payload.embeds[0].image.url, 'attachment://poll-0.png');
+  assert.equal(payload.embeds[1].thumbnail.url, 'attachment://poll-1.png');
+  assert.equal(payload.embeds[2].thumbnail, undefined);
+  assert.equal(result.body.get('files[0]').type, 'image/png');
+  assert.equal(result.body.get('files[1]').type, 'image/png');
+});
+
+test('event sign-up edits the event card even when an image embed comes first', async () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  const edits = []; const replies = [];
+  const interaction = { isButton: () => true, customId: `diskoko:event:${id}`, guildId: 'g', channelId: 'c', user: { id: 'u' }, message: { id: 'm', embeds: [{ toJSON: () => ({ image: { url: 'https://example.com/banner.png' } }) }, { toJSON: () => ({ title: 'فعالية', description: 'الموعد' }) }], edit: async payload => edits.push(payload) }, deferReply: async () => {}, editReply: async reply => replies.push(reply) };
+  const pool = { query: async sql => {
+    if (sql.startsWith('SELECT guild_id')) return { rows: [{ guild_id: 'g', channel_id: 'c', message_id: 'm', title: 'فعالية', description: 'الموعد', signup_enabled: true }] };
+    if (sql.startsWith('INSERT INTO diskoko_event_signups')) return { rowCount: 1 };
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 1 }] };
+    throw Error(sql);
+  } };
+  await handleInteractiveButton(interaction, pool);
+  assert.equal(edits[0].embeds[0].image.url, 'https://example.com/banner.png');
+  assert.match(edits[0].embeds[1].description, /المسجلون: \*\*1\*\*/);
+  assert.match(replies[0], /تم تسجيل/);
+});
+
+test('welcome card targets the selected channel with the joining member avatar', async () => {
+  const sends = [];
+  const member = { id: 'u', displayName: 'عضو', user: { username: 'عضو', bot: false }, guild: { id: 'g', name: 'السيرفر', channels: { fetch: async id => { assert.equal(id, 'welcome-channel'); return { isTextBased: () => true, send: async payload => sends.push(payload) }; } } }, displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/u/avatar.png' };
+  const pool = { query: async () => ({ rows: [{ channel_id: 'welcome-channel', title: 'أهلًا {name}', description: 'مرحبًا {member}', color: 0x123456, banner: null }] }) };
+  assert.equal(await sendWelcomeCard(member, pool), true);
+  assert.equal(sends[0].embeds[0].thumbnail.url, 'https://cdn.discordapp.com/avatars/u/avatar.png');
+  assert.equal(sends[0].embeds[0].title, 'أهلًا عضو');
+  assert.equal(sends[0].embeds[0].description, 'مرحبًا <@u>');
 });
 
 test('giveaway announcement retry keeps the same winner and edits the original message', async () => {

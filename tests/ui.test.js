@@ -161,6 +161,36 @@ test('retired staff template has no structure action in AI chat', async () => {
   assert.match(doc.querySelector('#aiMessages').textContent, /أُزيل من المكتبة/);
   dom.window.close();
 });
+test('poll, event and welcome open distinct live review cards', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  for (const kind of ['poll', 'event', 'welcome']) {
+    const task = aiPromptLibrary.find(item => item.kind === kind);
+    const interactive = kind === 'poll' ? { kind, channel: 'general', question: 'أي صورة تفضل؟', options: ['الأولى', 'الثانية'] } : { kind, channel: 'general', title: 'بطاقة مميزة', description: 'مرحبًا {member}' };
+    const response = url => {
+      if (url === '/api/ai/status') return { available: true, planEnabled: true };
+      if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: task.title, updated_at: '2026-09-23T00:00:00Z' }] };
+      if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: task.prompt, answer: 'بطاقة مراجعة', status: 'completed', library_mode: 'execute', library_title: task.title, library_category: task.category, proposal: { interactive, draft: true } }] };
+      return fixtureResponse(url);
+    };
+    const { dom, doc } = await page('assistant', response);
+    doc.querySelector('.ai-conversation').click(); await settle();
+    doc.querySelector('[data-ai-interactive]').click();
+    assert.ok(doc.querySelector('#aiSpecialColor'));
+    assert.ok(doc.querySelector('.ai-discord-members'));
+    doc.querySelector('#aiSpecialColor').value = '#123456';
+    doc.querySelector('#aiSpecialColor').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    assert.equal(doc.querySelector('#aiSpecialPreviewCard').style.borderColor, 'rgb(18, 52, 86)');
+    if (kind === 'poll') {
+      doc.querySelector('#aiAddPollOption').click();
+      assert.equal(doc.querySelectorAll('[data-poll-text]').length, 3);
+      assert.ok(doc.querySelector('#aiQuestionImage'));
+    } else if (kind === 'event') {
+      assert.ok(doc.querySelector('#aiEventSignup'));
+      assert.ok(doc.querySelector('#aiEventButton'));
+    } else assert.match(doc.querySelector('#aiSpecialPreviewBody').textContent, /@عضو جديد/);
+    dom.window.close();
+  }
+});
 test('analytics opt-in is separate from viewing analytics', async () => {
   const { dom, doc, requests } = await page('analytics'); assert.ok(doc.querySelector('#enableAnalytics')); assert.match(doc.body.textContent, /دون تخزين محتوى الرسائل/); assert.equal(requests.filter(req => req.options.method === 'PUT').length, 0); dom.window.close();
 });
