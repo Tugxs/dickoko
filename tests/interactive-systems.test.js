@@ -1,6 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { claimSupportTicket, discordMessageOptions, handleInteractiveButton, pollMessageOptions, processDueGiveaways, reopenSupportTicket, repairLegacyTicketControls, resolvePublicationChannel, sendWelcomeCard } from '../lib/interactive-systems.js';
+import { decodeWelcomePng, encodeWelcomePng } from '../lib/welcome-image.js';
+
+test('automatic welcome sends one composed design with the joining member avatar', async () => {
+  const pixels = Buffer.alloc(1200 * 480 * 4, 255);
+  const background = encodeWelcomePng({ width: 1200, height: 480, pixels });
+  const avatar = encodeWelcomePng({ width: 2, height: 2, pixels: Buffer.from([255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]) });
+  const sends = [];
+  const member = { id: 'member', displayName: 'ضيف', user: { username: 'ضيف', bot: false }, guild: { id: 'official', name: 'ديسكوكو', channels: { fetch: async () => ({ isTextBased: () => true, send: async payload => sends.push(payload) }) } }, displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/member/avatar.png' };
+  const pool = { query: async () => ({ rows: [{ channel_id: 'welcome', title: 'مرحبًا {name}', description: 'أهلًا {member}', color: 0x8b5cf6, banner: { mime: 'image/png', base64: background.toString('base64') }, avatar_position: 'center', composite: true, avatar_vertical: 50, avatar_radius: 95 }] }) };
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, headers: new Headers(), arrayBuffer: async () => avatar });
+  try {
+    assert.equal(await sendWelcomeCard(member, pool), true);
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].embeds[0].image.url, 'attachment://welcome-card.png');
+    assert.match(sends[0].embeds[0].description, /<@member>/);
+    const result = decodeWelcomePng(sends[0].files[0].attachment);
+    assert.deepEqual([...result.pixels.subarray((240 * 1200 + 600) * 4, (240 * 1200 + 600) * 4 + 3)], [255, 0, 0]);
+  } finally { global.fetch = originalFetch; }
+});
 
 test('only support role or server manager can claim a ticket', async () => {
   const replies = [];
