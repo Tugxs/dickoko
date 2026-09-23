@@ -26,6 +26,7 @@ test('interactive proposals accept bounded giveaways and ticket panels', () => {
   assert.deepEqual(normalizeAiProposal({ interactive: { kind: 'giveaway', prize: 'اشتراك شهر', channel: '#فعاليات', durationMinutes: 60, winnerCount: 2 } }), { operations: [], message: null, interactive: { kind: 'giveaway', prize: 'اشتراك شهر', channel: 'فعاليات', durationMinutes: 60, winnerCount: 2 } });
   assert.equal(normalizeAiProposal({ interactive: { kind: 'giveaway', prize: 'جائزة', channel: 'عام', durationMinutes: 0, winnerCount: 2 } }), null);
   assert.deepEqual(normalizeAiProposal({ interactive: { kind: 'tickets', title: 'الدعم', description: 'افتح تذكرة للمساعدة', channel: 'الدعم' } }), { operations: [], message: null, interactive: { kind: 'tickets', title: 'الدعم', description: 'افتح تذكرة للمساعدة', channel: 'الدعم' } });
+  assert.equal(normalizeAiProposal({ message: { channel: 'الدعم', content: 'رسالة عامة' }, interactive: { kind: 'tickets', title: 'الدعم', description: 'افتح تذكرة للمساعدة', channel: 'الدعم' } }).message, null);
 });
 
 test('poll proposals require distinct bounded choices', () => {

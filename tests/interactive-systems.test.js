@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { processDueGiveaways } from '../lib/interactive-systems.js';
+import { discordMessageOptions, processDueGiveaways } from '../lib/interactive-systems.js';
+
+test('ticket banner renders before the support description and keeps the open button', () => {
+  const options = discordMessageOptions({ content: '🎫 **الدعم**', embeds: [{ description: 'افتح تذكرة' }], components: [{ type: 1, components: [{ type: 2, label: 'فتح تذكرة' }] }] }, { mime: 'image/png', base64: 'aGVsbG8=' });
+  const payload = JSON.parse(options.body.get('payload_json'));
+  assert.equal(payload.embeds[0].image.url, 'attachment://diskoko-banner.png');
+  assert.equal(payload.embeds[1].description, 'افتح تذكرة');
+  assert.equal(payload.components[0].components[0].label, 'فتح تذكرة');
+});
 
 test('giveaway announcement retry keeps the same winner and edits the original message', async () => {
   const giveaway = { id: 'giveaway-1', guild_id: 'guild-1', channel_id: 'channel-1', message_id: 'message-1', prize: 'هدية', winner_count: 1, status: 'active', winners: [], announced_at: null };
