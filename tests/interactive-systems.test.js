@@ -134,6 +134,29 @@ test('welcome card targets the selected channel with the joining member avatar',
   assert.equal(sends[0].embeds[0].description, 'مرحبًا <@u>');
 });
 
+test('welcome card respects left and top avatar positions and banner order', async () => {
+  const sends = [];
+  const member = { id: 'u', displayName: 'عضو', user: { username: 'عضو', bot: false }, guild: { id: 'g', name: 'السيرفر', channels: { fetch: async () => ({ isTextBased: () => true, send: async payload => sends.push(payload) }) } }, displayAvatarURL: () => 'https://cdn.discordapp.com/avatar.png' };
+  let position = 'left';
+  const pool = { query: async () => ({ rows: [{ channel_id: 'welcome', title: 'يا هلا', description: 'مرحبًا {member}', color: 0x123456, avatar_position: position, banner_position: 'above', banner: { mime: 'image/png', base64: Buffer.from('image').toString('base64') } }] }) };
+  await sendWelcomeCard(member, pool);
+  assert.equal(sends[0].embeds[0].image.url, 'attachment://welcome.png');
+  assert.equal(sends[0].embeds[1].author.icon_url, 'https://cdn.discordapp.com/avatar.png');
+  position = 'top';
+  await sendWelcomeCard(member, pool);
+  assert.equal(sends[1].embeds[1].image.url, 'https://cdn.discordapp.com/avatar.png');
+  assert.equal(sends[1].embeds[2].title, 'يا هلا');
+});
+
+test('giveaway participant count appears on the original card after joining', async () => {
+  const edits = [], replies = [];
+  const interaction = { customId: 'diskoko:giveaway:11111111-1111-4111-8111-111111111111', guildId: 'g', channelId: 'c', user: { id: 'u' }, isButton: () => true, deferReply: async () => {}, editReply: async value => replies.push(value), message: { id: 'm', embeds: [{ toJSON: () => ({ title: 'جيف آواي', description: 'جائزة نترو\n👥 المشاركون: **0**', color: 0x123456 }) }], edit: async payload => edits.push(payload) } };
+  const pool = { query: async sql => sql.startsWith('SELECT guild_id,channel_id') ? { rows: [{ guild_id: 'g', channel_id: 'c', message_id: 'm', status: 'active', ends_at: new Date(Date.now() + 60000) }] } : sql.startsWith('INSERT INTO diskoko_giveaway_entries') ? { rowCount: 1 } : sql.startsWith('SELECT COUNT(*)') ? { rows: [{ total: 1 }] } : null };
+  await handleInteractiveButton(interaction, pool);
+  assert.match(edits[0].embeds[0].description, /المشاركون: \*\*1\*\*/);
+  assert.match(replies[0], /تم تسجيل/);
+});
+
 test('giveaway announcement retry keeps the same winner and edits the original message', async () => {
   const giveaway = { id: 'giveaway-1', guild_id: 'guild-1', channel_id: 'channel-1', message_id: 'message-1', prize: 'هدية', winner_count: 1, status: 'active', winners: [], announced_at: null };
   let entryReads = 0;
@@ -167,4 +190,3 @@ test('giveaway announcement retry keeps the same winner and edits the original m
   assert.equal(edits[0].body.content, edits[1].body.content);
   assert.ok(giveaway.announced_at);
 });
-
