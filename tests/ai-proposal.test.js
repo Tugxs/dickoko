@@ -22,6 +22,12 @@ test('AI proposal only permits reviewed creation and bounded messages', () => {
   });
 });
 
+test('final review keeps the actual customer request beside the executable details', () => {
+  const result = normalizeAiProposal({ review_request: 'جهز لوحة دعم بعنوان المساعدة', interactive: { kind: 'tickets', title: 'المساعدة', description: 'افتح تذكرة', channel: 'الدعم' } });
+  assert.equal(result.review_request, 'جهز لوحة دعم بعنوان المساعدة');
+  assert.equal(result.interactive.kind, 'tickets');
+});
+
 test('interactive proposals accept bounded giveaways and ticket panels', () => {
   assert.deepEqual(normalizeAiProposal({ interactive: { kind: 'giveaway', prize: 'اشتراك شهر', channel: '#فعاليات', durationMinutes: 60, winnerCount: 2 } }), { operations: [], message: null, interactive: { kind: 'giveaway', prize: 'اشتراك شهر', channel: 'فعاليات', durationMinutes: 60, winnerCount: 2 } });
   assert.equal(normalizeAiProposal({ interactive: { kind: 'giveaway', prize: 'جائزة', channel: 'عام', durationMinutes: 0, winnerCount: 2 } }), null);

@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alignAiProposalWithIntent } from '../lib/ai-intent.js';
+import { alignAiProposalWithIntent, unsupportedAutomationRequest } from '../lib/ai-intent.js';
+
+test('a request to build an unsupported bot or game never becomes another executable task', () => {
+  assert.equal(unsupportedAutomationRequest([{ role: 'user', content: 'سوي لي بوت موسيقى' }, { role: 'user', content: 'نعم' }]), true);
+  assert.equal(unsupportedAutomationRequest([{ role: 'user', content: 'ابن لي لعبة تفاعلية' }, { role: 'user', content: 'نفذ' }]), true);
+  assert.equal(unsupportedAutomationRequest([{ role: 'user', content: 'ابن لي قنوات لسيرفر ألعاب' }]), false);
+});
 
 const channels = [{ name: '121', type: 0 }, { name: 'Voice', type: 2 }];
 
