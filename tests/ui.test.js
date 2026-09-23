@@ -116,7 +116,8 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
   assert.ok(doc.querySelector('[data-ai-delete]'));
-  assert.equal(doc.querySelectorAll('.ai-library-item').length, 108);
+  assert.equal(doc.querySelectorAll('.ai-library-item').length, 29);
+  assert.equal(doc.querySelectorAll('.ai-library-item').length, doc.querySelectorAll('.ai-library-item span').length);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.ok(doc.querySelector('[data-ai-plan]'));
   doc.querySelector('[data-ai-message]').click();
@@ -127,6 +128,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('[data-ai-interactive]').click();
   assert.equal(doc.querySelector('#aiInteractiveChannel').value, 'c2');
   assert.match(doc.querySelector('.ai-discord-preview').textContent, /اشتراك/);
+  assert.match(doc.querySelector('.ai-discord-server-channels').textContent, new RegExp(guild.name));
   assert.equal(doc.querySelector('#aiInteractiveLaunch').disabled, true);
   doc.querySelector('#aiInteractiveCancel').click();
   doc.querySelector('[data-ai-template="0"]').click();
@@ -261,4 +263,5 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
+
 
