@@ -380,7 +380,12 @@ async function discordBotFetch(pathname, options = {}) {
 async function manageableGuilds(user) {
   const token = await discordUserToken(user);
   if (!token) throw problem('انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.', 401);
-  const response = await fetch(`${DISCORD_API}/users/@me/guilds`, { signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${token}` } });
+  let response;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { response = await fetch(`${DISCORD_API}/users/@me/guilds`, { signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${token}` } }); }
+    catch (error) { if (attempt) throw problem('تعذر الاتصال بـ Discord. أعد المحاولة بعد قليل.', 502); continue; }
+    if (response.ok || response.status < 500 || attempt) break;
+  }
   if (!response.ok) throw problem(response.status === 401 ? 'انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.' : 'تعذر تحميل السيرفرات من Discord. أعد المحاولة بعد قليل.', response.status === 401 ? 401 : 502);
   return (await response.json()).filter(manageable);
 }
