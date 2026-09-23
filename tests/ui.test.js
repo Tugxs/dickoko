@@ -187,7 +187,13 @@ test('poll, event and welcome open distinct live review cards', async () => {
     } else if (kind === 'event') {
       assert.ok(doc.querySelector('#aiEventSignup'));
       assert.ok(doc.querySelector('#aiEventButton'));
-    } else assert.match(doc.querySelector('#aiSpecialPreviewBody').textContent, /@عضو جديد/);
+    } else {
+      assert.match(doc.querySelector('#aiSpecialPreviewBody').textContent, /@عضو جديد/);
+      assert.ok(doc.querySelector('#aiWelcomeAvatarPosition'));
+      doc.querySelector('#aiWelcomeAvatarPosition').value = 'top';
+      doc.querySelector('#aiWelcomeAvatarPosition').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+      assert.equal(doc.querySelector('#aiSpecialPreviewCard').dataset.avatarPosition, 'top');
+    }
     dom.window.close();
   }
 });
@@ -295,5 +301,4 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
-
 
