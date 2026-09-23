@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { manageable, normalizeOperations, resolveExisting, checkConflict, operationBody, connectionState, normalizeSchedule } from '../lib/workspace-domain.js';
+import { manageable, normalizeOperations, resolveExisting, checkExistingAccess, checkConflict, operationBody, connectionState, normalizeSchedule } from '../lib/workspace-domain.js';
 const snapshot = { guildId: 'guild', channels: [{ id: 'category', name: 'Welcome', type: 4 }, { id: 'one', name: 'chat', type: 0, parent_id: 'category' }, { id: 'two', name: 'chat', type: 0, parent_id: null }], roles: [{ id: 'guild', name: '@everyone' }, { id: 'managed', name: 'Bot', managed: true }, { id: 'role', name: 'Member', color: 123 }] };
 test('owner, manager and administrator can manage; ordinary members cannot', () => {
   assert.equal(manageable({ owner: true }), true); assert.equal(manageable({ permissions: '8' }), true); assert.equal(manageable({ permissions: '32' }), true); assert.equal(manageable({ permissions: '1024' }), false);
@@ -37,6 +37,18 @@ test('AI can build categories and place channels inside them in one reviewed pla
   const [existing] = normalizeOperations([{ resource_type: 'channel', name: 'hello', parent_name: 'Welcome' }], snapshot);
   assert.equal(existing.parent_id, 'category');
   assert.throws(() => normalizeOperations([{ resource_type: 'channel', name: 'bad', parent_name: 'غير موجود' }], snapshot));
+});
+test('new channel access uses narrow reviewed presets and never grants administrator', () => {
+  const [readOnly] = normalizeOperations([{ resource_type: 'channel', name: 'announcements', access: 'read_only' }], snapshot);
+  const body = operationBody(readOnly);
+  assert.equal(body.permission_overwrites[0].id, 'guild');
+  assert.equal(body.permission_overwrites[0].deny, '2048');
+  assert.throws(() => checkExistingAccess(readOnly, { name: 'announcements', permission_overwrites: [] }));
+  assert.doesNotThrow(() => checkExistingAccess(readOnly, { permission_overwrites: [{ id: 'guild', deny: '2048' }] }));
+  const [staff] = normalizeOperations([{ resource_type: 'channel', name: 'staff', access: 'staff_only', staff_role_id: 'role' }], snapshot);
+  assert.equal(operationBody(staff).permission_overwrites[1].id, 'role');
+  assert.throws(() => normalizeOperations([{ resource_type: 'channel', name: 'staff', access: 'staff_only', staff_role_id: 'other' }], snapshot));
+  assert.throws(() => normalizeOperations([{ resource_type: 'channel', name: 'staff', access: 'administrator' }], snapshot));
 });
 test('channel topics, forums and ordering are normalized for reviewed execution', () => {
   const [created] = normalizeOperations([{ resource_type: 'channel', name: 'المنتدى', type: 15, topic: 'ناقش أفكار المجتمع', position: 3 }], snapshot);
