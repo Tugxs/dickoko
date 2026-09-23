@@ -33,6 +33,19 @@ test('bot pages separate designs, live commands and AI connection state', async 
   const commandPage = await page('commands'); assert.equal(commandPage.doc.querySelectorAll('.command-check').length, 3); assert.equal(commandPage.doc.querySelector('#botEnabled').checked, true); commandPage.dom.window.close();
   const assistantPage = await page('assistant'); assert.match(assistantPage.doc.body.textContent, /الجهاز المحلي غير متصل/); assert.match(assistantPage.doc.body.textContent, /AI ديسكوكو/); assistantPage.dom.window.close();
 });
+
+test('change history counts applied structure and published giveaway as two completed actions', async () => {
+  const response = url => url === `/api/workspace/${guild.id}` ? {
+    ...workspace,
+    changeSets: [{ id: 5, template_key: 'custom', status: 'succeeded', plan: { name: 'تغييرات AI ديسكوكو' }, updated_at: '2026-09-23T08:00:00Z' }],
+    publications: [{ id: 'request', interactive_kind: 'giveaway', proposal: { interactive: { prize: 'اشتراك' } }, interactive_channel_id: 'channel', interactive_message_id: 'message', published_at: '2026-09-23T08:01:00Z' }],
+  } : fixtureResponse(url);
+  const { dom, doc } = await page('activity', response);
+  assert.match(doc.body.textContent, /العمليات المنفذة · ٢/);
+  assert.match(doc.body.textContent, /نُشر جيف آواي: اشتراك/);
+  assert.match(doc.body.textContent, /تغييرات AI ديسكوكو/);
+  dom.window.close();
+});
 test('AI chat exposes reviewed Discord actions, image attachment and voice transcription control', async () => {
   const conversationId = '11111111-1111-4111-8111-111111111111';
   const response = url => {
@@ -54,12 +67,35 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('#aiMessageCancel').click();
   doc.querySelector('[data-ai-interactive]').click();
   assert.equal(doc.querySelector('#aiInteractiveChannel').value, 'c2');
+  assert.match(doc.querySelector('.ai-discord-preview').textContent, /اشتراك/);
   assert.equal(doc.querySelector('#aiInteractiveLaunch').disabled, true);
   doc.querySelector('#aiInteractiveCancel').click();
   doc.querySelector('[data-ai-template="0"]').click();
   assert.match(doc.querySelector('#assistantPrompt').value, /جيف آواي/);
   assert.equal(doc.querySelector('#aiTemplateDraft').hidden, false);
   assert.match(doc.querySelector('#aiNotice').textContent, /مسودة جديدة/);
+  dom.window.close();
+});
+test('AI structure review applies from one final confirmation and links its request', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const requestId = '22222222-2222-4222-8222-222222222222';
+  const op = { operation_key: 'role-new', resource_type: 'role', action: 'create', name: 'عضو جديد' };
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: 'رتبة', updated_at: '2026-09-23T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: requestId, prompt: 'أنشئ رتبة عضو جديد', answer: 'جاهزة للمراجعة', status: 'completed', proposal: { operations: [op], message: null, review_request: 'أنشئ رتبة عضو جديد' } }] };
+    if (url === '/api/change-sets') return { changeSet: { id: 5 } };
+    if (url === '/api/change-sets/5') return { changeSet: { id: 5, guild_id: guild.id, status: 'draft', plan: { operations: [op] } }, operations: [{ operation_key: op.operation_key, status: 'pending' }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc, requests } = await page('assistant', response);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  doc.querySelector('[data-ai-plan]').click(); await settle();
+  assert.equal(doc.querySelector('#confirmApply'), null);
+  assert.equal(doc.querySelector('#applyPlan').disabled, false);
+  assert.equal(JSON.parse(requests.find(entry => entry.url === '/api/change-sets').options.body).aiRequestId, requestId);
+  doc.querySelector('#applyPlan').click(); await settle();
+  assert.equal(requests.filter(entry => entry.url === '/api/change-sets/5/apply').length, 1);
   dom.window.close();
 });
 test('analytics opt-in is separate from viewing analytics', async () => {

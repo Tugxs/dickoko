@@ -26,3 +26,10 @@ test('explicit text-only requests stay text and missing channels can be proposed
   assert.equal(missing.message, null);
   assert.equal(missing.interactive.channel, 'missing');
 });
+
+test('giveaway confirmation does not invent categories or channels', () => {
+  const proposal = { executeNow: true, operations: [{ resource_type: 'category', name: 'الأنشطة التفاعلية' }, { resource_type: 'channel', name: 'العروض والأنشطة' }], interactive: { kind: 'giveaway', prize: 'جائزة', channel: 'العام', durationMinutes: 60, winnerCount: 3 } };
+  const result = alignAiProposalWithIntent(proposal, [{ role: 'user', content: 'جهز جيف آواي في العام لجائزة لمدة ساعة مع 3 فائزين' }, { role: 'user', content: 'اعرض التفاصيل' }]);
+  assert.deepEqual(result.operations, []);
+  assert.equal(result.interactive.kind, 'giveaway');
+});
