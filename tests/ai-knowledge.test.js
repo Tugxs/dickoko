@@ -6,8 +6,9 @@ test('local AI receives the relevant real workflow without flooding every reques
   const support = selectAiKnowledge('سوي لوحة تذاكر دعم ببطاقة وصورة');
   assert.match(support, /قناة خاصة/);
   assert.match(support, /بنر ثم عنوان/);
-  assert.doesNotMatch(support, /مشاركة جيف آواي، تصويت، أو تنزيل.*بطاقة الملف/s);
+  assert.doesNotMatch(support, /بطاقة الملف/);
   const file = selectAiKnowledge('خل الملف PDF يطلع زر تحميل');
-  assert.match(file, /رابط مرفق Discord صالحًا/);
+  assert.doesNotMatch(file, /زر تحميل.*قناة خاصة/);
   assert.doesNotMatch(file, /ألعاب تفاعلية/);
 });
+

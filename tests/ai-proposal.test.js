@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeAiProposal } from '../lib/local-ai.js';
 
-test('AI proposal only permits reviewed creation and bounded messages', () => {
+test('AI proposal discards retired structure operations and keeps bounded messages', () => {
   const result = normalizeAiProposal({
     operations: [
       { resource_type: 'role', name: 'Do not create', permissions: '8', action: 'delete' },
@@ -14,10 +14,7 @@ test('AI proposal only permits reviewed creation and bounded messages', () => {
     message: { channel: 'general', content: 'مرحبًا في مجتمعنا!' },
   });
   assert.deepEqual(result, {
-    operations: [
-      { resource_type: 'role', action: 'create', name: 'New Member' },
-      { resource_type: 'channel', action: 'create', name: 'general', type: 0 },
-    ],
+    operations: [],
     message: { channel: 'general', content: 'مرحبًا في مجتمعنا!' },
   });
 });
@@ -41,12 +38,13 @@ test('poll proposals require distinct bounded choices', () => {
   assert.equal(normalizeAiProposal({ interactive: { kind: 'poll', question: 'متى نجتمع؟', channel: 'العام', options: ['الجمعة'] } }), null);
 });
 
-test('download cards require a title, description and publication channel', () => {
-  assert.deepEqual(normalizeAiProposal({ interactive: { kind: 'download', title: 'دليل المجتمع', description: 'حمّل الدليل', channel: '#الملفات' } }), { operations: [], message: null, interactive: { kind: 'download', title: 'دليل المجتمع', description: 'حمّل الدليل', channel: 'الملفات' } });
+test('retired download cards cannot become executable AI proposals', () => {
+  assert.equal(normalizeAiProposal({ interactive: { kind: 'download', title: 'دليل المجتمع', description: 'حمّل الدليل', channel: '#الملفات' } }), null);
   assert.equal(normalizeAiProposal({ interactive: { kind: 'download', title: 'دليل المجتمع', channel: 'الملفات' } }), null);
 });
 
-test('AI updates require an actual Discord resource ID and only safe fields', () => {
-  assert.deepEqual(normalizeAiProposal({ operations: [{ resource_type: 'channel', action: 'update', resource_id: '1036300782972186686', name: 'الأخبار', topic: 'آخر أخبار المجتمع', permissions: '8' }] }), { operations: [{ resource_type: 'channel', action: 'update', resource_id: '1036300782972186686', name: 'الأخبار', topic: 'آخر أخبار المجتمع' }], message: null });
+test('AI structure updates remain unavailable until a reviewed template exists', () => {
+  assert.equal(normalizeAiProposal({ operations: [{ resource_type: 'channel', action: 'update', resource_id: '1036300782972186686', name: 'الأخبار', topic: 'آخر أخبار المجتمع', permissions: '8' }] }), null);
   assert.equal(normalizeAiProposal({ operations: [{ resource_type: 'channel', action: 'update', resource_id: 'not-real', name: 'الأخبار' }] }), null);
 });
+

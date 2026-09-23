@@ -1,3 +1,4 @@
+import { aiPromptLibrary } from './ai-library-catalog.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 function discordMarkdownPreview(value) {
@@ -236,173 +237,13 @@ async function prepareAiMedia(file) {
   const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '').split(',')[1]); reader.onerror = () => reject(Error('تعذر قراءة الملف المتحرك.')); reader.readAsDataURL(file); });
   return { mime: file.type, base64: encoded };
 }
-async function prepareDownloadFile(file) {
-  const allowed = ['application/pdf', 'application/zip', 'application/x-zip-compressed', 'text/plain', 'image/png', 'image/jpeg', 'image/webp'];
-  if (!allowed.includes(file.type) || file.size > 5 * 1024 * 1024 || !file.size) throw Error('اختر ملف PDF أو ZIP أو TXT أو صورة لا تتجاوز 5 ميجابايت.');
-  const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '')); reader.onerror = () => reject(Error('تعذر قراءة الملف.')); reader.readAsDataURL(file); });
-  return { name: file.name, mime: file.type, base64: data.split(',')[1] || '' };
-}
-const aiSuggestionGroups = [
-  { name: 'الجيف آواي', mode: 'execute', prompts: [
-    ['جيف آواي سريع', 'جهز جيف آواي في #[القناة] لجائزة [الجائزة] لمدة [المدة بالدقائق] دقيقة، مع [عدد الفائزين] فائز. اعرض التفاصيل في بطاقة المراجعة قبل النشر.'],
-    ['جائزة اشتراك', 'جهز جيف آواي لجائزة اشتراك [المدة] في #[القناة]، ينتهي بعد [عدد الساعات] ساعة، وفائز واحد.'],
-    ['جائزة لأكثر من فائز', 'نظم جيف آواي في #[القناة] لجائزة [الجائزة]، لمدة [المدة] دقيقة، واختر [عدد الفائزين] فائزين.'],
-    ['صياغة إعلان الجيف آواي', 'اكتب إعلانًا واضحًا وحماسيًا لجيف آواي جائزته [الجائزة]، مدته [المدة]، وشروطه [الشروط]. لا تنشره قبل مراجعتي.', 'advice'],
-    ['مراجعة شروط المسابقة', 'راجع شروط هذا الجيف آواي واقترح صياغة عادلة ومفهومة للأعضاء: [الشروط].', 'advice'],
-    ['خطة جوائز شهرية', 'اقترح جدول جيف آواي شهريًا لمجتمع [نوع المجتمع] بميزانية [الميزانية]، مع أفكار جوائز مناسبة.', 'advice'],
-  ] },
-  { name: 'تذاكر الدعم', mode: 'execute', prompts: [
-    ['لوحة تذاكر الدعم', 'جهز لوحة تذاكر دعم في #[القناة] بعنوان [العنوان]، ووصفها [الوصف]. اعرض الخطة قبل النشر.'],
-    ['دعم العملاء', 'جهز لوحة تذاكر دعم للعملاء في #[القناة]، بعنوان [اسم الخدمة]، مع زر يفتح محادثة خاصة لصاحب الطلب وفريق الدعم. اجعل استلام التذكرة لفريق الدعم فقط.'],
-    ['قسم طلب المساعدة', 'جهز لوحة تذاكر لطلبات المساعدة في #[القناة]. اجعل العنوان واضحًا والوصف ودودًا ومختصرًا.'],
-    ['سياسة الرد على التذاكر', 'اكتب سياسة مختصرة لفريق الدعم: أولوية التذاكر، نبرة الرد، ومتى نصعد المشكلة.', 'advice'],
-    ['رد افتتاحي للتذكرة', 'اكتب ردًا افتتاحيًا محترمًا يظهر للعضو عند فتح تذكرة، ويطلب منه وصف المشكلة دون مشاركة بيانات حساسة.', 'advice'],
-    ['أسئلة الدعم الشائعة', 'رتب لي أسئلة وأجوبة شائعة عن [الخدمة] لتقليل التذاكر المتكررة.', 'advice'],
-  ] },
-  { name: 'بناء السيرفر', mode: 'execute', prompts: [
-    ['ابنِ هيكل السيرفر', 'ابن لي هيكل سيرفر [نوع المجتمع] من تصنيفات وقنوات أساسية ورتب مناسبة. راجع الموجود أولًا، ثم اعرض خطة مترابطة بدون تكرار قبل التنفيذ.'],
-    ['قسم ترحيب كامل', 'جهز قسم ترحيب فيه تصنيف وقناة بداية وقناة قوانين لسيرفري. استخدم الموجود ولا تكرر القنوات.'],
-    ['قسم فريق خاص', 'جهز قناة خاصة لفريق [اسم الرتبة الموجودة] تحت تصنيف مناسب، واعرض الصلاحيات للمراجعة.'],
-    ['قناة إعلانات للقراءة', 'أنشئ قناة إعلانات للقراءة فقط باسم [الاسم] تحت تصنيف [التصنيف]، ثم اعرض الخطة للمراجعة.'],
-  ] },
-  { name: 'بطاقات وملفات', mode: 'execute', prompts: [
-    ['بطاقة تحميل', 'جهز بطاقة تحميل في #[القناة] بعنوان [اسم الملف] ووصف [ما يحتويه]. سأختار الملف عند المراجعة؛ أبغى زر تحميل بدل ظهور الملف خامًا في القناة.'],
-    ['دليل قابل للتحميل', 'جهز بطاقة دليل المجتمع في #[القناة] بعنوان [العنوان] ووصف مختصر، مع زر تحميل الملف بعد مراجعتي.'],
-    ['جيف آواي مع بنر', 'جهز جيف آواي في #[القناة] لجائزة [الجائزة] لمدة [المدة] دقيقة وفائز [واحد أو العدد]. سأرفق بنر يظهر فوق التفاصيل وزر المشاركة.'],
-    ['لوحة دعم مع بنر', 'جهز لوحة تذاكر دعم في #[القناة] بعنوان [العنوان] ووصف [الوصف]. سأرفق بنر يظهر فوق النص وزر فتح التذكرة.'],
-  ] },
-  { name: 'القنوات', mode: 'execute', prompts: [
-    ['قناة نصية جديدة', 'أريد إنشاء قناة نصية باسم [الاسم] لغرض [الغرض]. اقترح وصفًا مناسبًا ثم اعرض خطة المراجعة قبل الإنشاء.'],
-    ['قناة صوتية', 'جهز قناة صوتية باسم [الاسم] لمجتمع [نوع المجتمع]، واعرض ما سيُنشأ قبل التنفيذ.'],
-    ['تصنيف للقنوات', 'اقترح تصنيفًا باسم [الاسم] ينظم قنوات [الغرض]، ثم جهزه للمراجعة.'],
-    ['هيكلة مجتمع ألعاب', 'اقترح هيكلة قنوات لسيرفر ألعاب فيه [عدد الأعضاء] عضوًا. ابدأ بالقنوات الأساسية فقط.', 'advice'],
-    ['هيكلة متجر', 'اقترح ترتيب قنوات لسيرفر متجر يبيع [المنتج]، من الترحيب حتى الدعم.', 'advice'],
-    ['تقليل ازدحام القنوات', 'هذه قنوات سيرفري الحالية. اقترح كيف أجعلها أبسط وأسهل للعضو الجديد دون حذف شيء تلقائيًا.', 'advice'],
-    ['وصف قناة', 'اكتب وصفًا واضحًا لقناة #[القناة] يشرح ما ينشر فيها وما لا ينشر.', 'advice'],
-    ['قناة إعلان', 'اقترح اسم قناة إعلانات مناسبًا لمجتمع [النوع] واكتب أول منشور تعريفي لها.', 'advice'],
-  ] },
-  { name: 'الرتب', mode: 'execute', prompts: [
-    ['رتبة جديدة', 'جهز رتبة باسم [اسم الرتبة] لفئة [الفئة]. اشرح الغرض منها ثم اعرض خطة المراجعة.'],
-    ['رتبة أعضاء', 'اقترح اسم رتبة للأعضاء الجدد ثم جهز إنشاءها فقط؛ لا تقل إنها توزع تلقائيًا.'],
-    ['رتبة فريق الدعم', 'جهز رتبة باسم [اسم الرتبة] لفريق الدعم، واشرح الصلاحيات التي ينبغي مراجعتها يدويًا.'],
-    ['سلم رتب المجتمع', 'اقترح سلم رتب بسيطًا لمجتمع [النوع] دون منح صلاحيات إدارية تلقائيًا.', 'advice'],
-    ['أسماء رتب إبداعية', 'اقترح 10 أسماء رتب متدرجة لمجتمع [النوع] مع وصف مختصر لكل رتبة.', 'advice'],
-    ['مراجعة الصلاحيات', 'اشرح كيف أراجع صلاحيات رتب السيرفر وأقلل الصلاحيات العالية دون تعطيل فريق الإدارة.', 'advice'],
-  ] },
-  { name: 'الرسائل', mode: 'execute', prompts: [
-    ['إعلان مع صورة', 'اكتب رسالة أنيقة عن [الموضوع] للنشر في #[القناة]. سأرفق صورة مع الرسالة؛ اعرض النص للمراجعة قبل النشر.'],
-    ['رسالة ترحيب واحدة', 'اكتب رسالة ترحيب واحدة للأعضاء في #[القناة] بنبرة [رسمية أو ودودة]، ثم جهزها للمراجعة.'],
-    ['تحديث مهم', 'صغ إعلانًا واضحًا عن [التحديث] لأعضاء السيرفر في #[القناة] مع أهم ثلاث نقاط.'],
-    ['افتتاح سيرفر', 'اكتب منشور افتتاح لسيرفر [الاسم] في #[القناة] يشرح الفكرة ويدعو الأعضاء للمشاركة.'],
-    ['تذكير بالقوانين', 'اكتب تذكيرًا لطيفًا بالقوانين التالية لنشره في #[القناة]: [القوانين].'],
-    ['رسالة شكر', 'اكتب رسالة شكر لأعضاء مجتمع [الاسم] بمناسبة [الحدث]، دون مبالغة.'],
-    ['إعلان فعالية', 'صغ إعلان فعالية [الاسم] بتاريخ [الوقت] في #[القناة] مع طريقة المشاركة.'],
-    ['إعلان صيانة', 'اكتب إعلان صيانة للخدمة [الاسم] في #[القناة]، يبدأ [الوقت] وينتهي [الوقت].'],
-  ] },
-  { name: 'إدارة المجتمع', mode: 'advice', prompts: [
-    ['رحلة العضو الجديد', 'صمم رحلة بسيطة للعضو الجديد من لحظة دخوله حتى أول مشاركة مفيدة.'],
-    ['تنشيط الأعضاء', 'اقترح 10 أفكار عملية لتنشيط أعضاء سيرفر [نوع المجتمع] دون إزعاجهم بالمنشن.'],
-    ['تقويم فعاليات', 'ابن لي تقويم فعاليات لأربعة أسابيع لمجتمع [النوع] مع هدف كل فعالية.'],
-    ['قوانين مختصرة', 'اكتب قوانين سيرفر مختصرة وواضحة تناسب مجتمع [النوع].'],
-    ['إرشادات المشرفين', 'ضع دليلًا عمليًا للمشرفين للتعامل مع الخلافات والبلاغات باحترام.'],
-    ['استطلاع رأي', 'جهز استطلاعًا تفاعليًا في #[القناة] عن [السؤال] بخيارات [الخيار الأول] و[الخيار الثاني]. اعرض التفاصيل قبل النشر.', 'execute'],
-    ['برنامج سفراء', 'اقترح برنامج سفراء أو مساهمين لمجتمع [النوع] مع معايير اختيار واضحة.'],
-    ['قياس نجاح المجتمع', 'اقترح مؤشرات أسبوعية مفيدة لمجتمع [النوع] وكيف أقرأها دون الاعتماد على عدد الرسائل فقط.'],
-  ] },
-  { name: 'البوتات والأوامر', mode: 'advice', prompts: [
-    ['أوامر مفيدة', 'اقترح أوامر بوت أساسية تناسب سيرفر [النوع]، وبيّن ما يتطلب برمجة قبل تفعيله.'],
-    ['بوت موسيقى', 'صمم تجربة بوت موسيقى لسيرفري: الأوامر، الصلاحيات، والقيود اللازمة قبل التشغيل.'],
-    ['بوت ألعاب', 'اقترح ثلاث ألعاب بسيطة يمكن تقديمها داخل Discord واشرح تجربة العضو.'],
-    ['تقليل تداخل البوتات', 'ساعدني أراجع البوتات الموجودة وأوزع المسؤوليات بينها لتجنب الأوامر المكررة.'],
-    ['أمان البوتات', 'اعطني قائمة مراجعة لصلاحيات البوتات المثبتة في السيرفر.'],
-    ['تصميم بوت خاص', 'ساعدني أصمم بوت باسم [الاسم] لمهمة [المهمة]، وحدد ما هو جاهز الآن وما يحتاج تطويرًا.'],
-  ] },
-  { name: 'المحتوى والهوية', mode: 'advice', prompts: [
-    ['وصف السيرفر', 'اكتب وصفًا جذابًا وصادقًا لسيرفر [الاسم] المهتم بـ[المجال].'],
-    ['شعار لفظي', 'اقترح 10 شعارات قصيرة لمجتمع [الاسم] تعكس [القيمة].'],
-    ['أسلوب الرسائل', 'صمم أسلوب كتابة موحدًا لإعلانات سيرفر [الاسم]: النبرة، الطول، والتنسيق.'],
-    ['قالب إعلان', 'اكتب قالب إعلان قابل للتعبئة للفعاليات الأسبوعية.'],
-    ['تعريف الرتب', 'اكتب وصفًا قصيرًا لكل رتبة في هذا السلم: [الرتب].'],
-    ['مراجعة نص', 'حسّن النص التالي ليكون واضحًا وودودًا لأعضاء Discord دون تغيير معناه: [النص].'],
-  ] },
-  { name: 'الأمان والإشراف', mode: 'advice', prompts: [
-    ['خطة مكافحة السبام', 'ضع خطة عملية لتقليل السبام في سيرفر [النوع] تشمل الإعدادات والتعامل البشري.'],
-    ['التعامل مع بلاغ', 'اقترح طريقة عادلة للتعامل مع بلاغ عن [نوع المشكلة] دون كشف هوية المبلّغ.'],
-    ['صلاحيات آمنة', 'راجع معي الحد الأدنى المناسب لصلاحيات المشرفين والمساعدين.'],
-    ['سياسة الروابط', 'اكتب سياسة مختصرة لنشر الروابط والإعلانات في المجتمع.'],
-    ['خطة طوارئ', 'ضع خطوات عملية إذا تعرض السيرفر لموجة سبام أو حسابات مخترقة.'],
-    ['رسالة تحذير', 'اكتب رسالة تحذير مهذبة وواضحة لعضو خالف قاعدة [القاعدة].'],
-  ] },
-  { name: 'الترحيب والانضمام', mode: 'advice', prompts: [
-    ['رسالة دخول أولى', 'اكتب رسالة دخول أولى لعضو جديد في مجتمع [النوع]، واضحة وقصيرة.'],
-    ['خطوات البداية', 'رتب ثلاث خطوات بسيطة للعضو الجديد بعد دخول سيرفر [الاسم].'],
-    ['تعريف القنوات', 'اكتب دليلًا سريعًا للقنوات التالية مع وظيفة كل قناة: [القنوات].'],
-    ['رسالة اختيار الاهتمامات', 'صغ رسالة تدعو العضو لتحديد اهتماماته من الخيارات التالية: [الخيارات].'],
-    ['تعريف فريق الإدارة', 'اكتب رسالة تعريف ودودة لفريق الإدارة وأدوارهم: [الأسماء والأدوار].'],
-    ['سؤال تعارف', 'اقترح سؤال تعارف بسيطًا يشجع الأعضاء الجدد على المشاركة.'],
-    ['دليل أول مشاركة', 'اكتب دليلًا قصيرًا يساعد العضو على كتابة أول مشاركة مفيدة في مجتمع [النوع].'],
-    ['تحسين الترحيب', 'راجع رسالة الترحيب الحالية وحسن وضوحها ونبرتها: [النص].'],
-  ] },
-  { name: 'الفعاليات', mode: 'advice', prompts: [
-    ['مسابقة أسئلة', 'صمم مسابقة أسئلة لمجتمع [النوع] مع قواعد المشاركة و10 أسئلة مناسبة.'],
-    ['ليلة ألعاب', 'خطط لليلة ألعاب مدتها [المدة] لمجتمع [النوع] مع جدول واضح.'],
-    ['تحدي أسبوعي', 'اقترح تحديًا أسبوعيًا منخفض التكلفة يناسب أعضاء مجتمع [النوع].'],
-    ['فعالية صوتية', 'صمم فعالية صوتية في Discord عن [الموضوع] مع جدول وفقرات وأسئلة.'],
-    ['نص دعوة فعالية', 'اكتب دعوة مختصرة لفعالية [الاسم] في [الوقت] مع سبب جذاب للمشاركة.'],
-    ['قواعد الفعالية', 'اكتب قواعد عادلة وواضحة لفعالية [الاسم]، تشمل التسجيل والنتائج.'],
-    ['تقييم فعالية', 'جهز استبيانًا قصيرًا لتقييم فعالية [الاسم] بعد انتهائها.'],
-    ['تقرير الفعالية', 'اكتب قالب تقرير بعد فعالية يتضمن الحضور وما نجح وما يحتاج تحسينًا.'],
-  ] },
-  { name: 'التحليلات والتحسين', mode: 'advice', prompts: [
-    ['قراءة النشاط', 'ساعدني أفهم أرقام نشاط السيرفر التي سأرسلها، وحدد ثلاثة إجراءات عملية.'],
-    ['تفسير هدوء القنوات', 'اقترح أسبابًا محتملة لهدوء قناة [الاسم] وكيف أختبرها دون افتراضات قاطعة.'],
-    ['مقارنة الأسابيع', 'اعمل لي قالب مقارنة أسبوعية للنشاط: الرسائل، المشاركون، والفعاليات.'],
-    ['مؤشرات الدعم', 'اقترح مؤشرات بسيطة لقياس جودة تذاكر الدعم ووقت الاستجابة.'],
-    ['قياس الانضمام', 'صمم طريقة لقياس تجربة العضو الجديد خلال أول سبعة أيام.'],
-    ['تقرير شهري', 'اكتب قالب تقرير شهري لصاحب سيرفر Discord مع خلاصة وتوصيات.'],
-    ['أهداف نمو واقعية', 'ساعدني أحدد أهداف نمو واقعية لمجتمع فيه [عدد الأعضاء] عضوًا.'],
-    ['تحليل ملاحظات', 'صنف ملاحظات الأعضاء التالية إلى مشكلات وفرص وخطوات عمل: [الملاحظات].'],
-  ] },
-  { name: 'التواصل والإعلانات', mode: 'advice', prompts: [
-    ['رسالة اعتذار', 'اكتب اعتذارًا واضحًا للأعضاء عن [المشكلة] مع إجراء التصحيح المتوقع.'],
-    ['رد على اعتراض', 'صغ ردًا مهنيًا على اعتراض عضو بخصوص [الموضوع] دون دفاعية.'],
-    ['إعلان تغيير القوانين', 'اكتب إعلانًا عن تغيير قاعدة [القاعدة] وسبب التغيير وتاريخ سريانها.'],
-    ['رسالة غياب', 'اكتب رسالة تخبر الأعضاء بغياب فريق الإدارة من [الوقت] إلى [الوقت] وكيف يطلبون المساعدة.'],
-    ['استقبال اقتراحات', 'صغ منشورًا يدعو الأعضاء لتقديم اقتراحات قابلة للتنفيذ للسيرفر.'],
-    ['توضيح سوء فهم', 'اكتب توضيحًا هادئًا لسوء فهم حول [الموضوع] مع الخطوة التالية.'],
-    ['إعلان شراكة', 'اكتب إعلان شراكة مع [الجهة] يشرح فائدتها للأعضاء دون مبالغة.'],
-    ['تلخيص نقاش', 'لخص النقاش التالي إلى قرارات ونقاط مفتوحة ومسؤوليات: [النقاش].'],
-  ] },
-  { name: 'التخطيط والتشغيل', mode: 'advice', prompts: [
-    ['خطة إطلاق', 'ابن خطة إطلاق لسيرفر [النوع] خلال أسبوعين مع مهام يومية مختصرة.'],
-    ['توزيع مهام الفريق', 'اقترح توزيع مهام لفريق إدارة من [العدد] أشخاص في مجتمع [النوع].'],
-    ['قائمة مراجعة يومية', 'جهز قائمة مراجعة يومية للمشرفين لا تتجاوز 10 دقائق.'],
-    ['قائمة مراجعة أسبوعية', 'جهز قائمة مراجعة أسبوعية لصاحب السيرفر تشمل النشاط والدعم والأمان.'],
-    ['خطة إعادة تنشيط', 'اقترح خطة أربعة أسابيع لإعادة تنشيط سيرفر هادئ دون إعلانات مزعجة.'],
-    ['أولويات التطوير', 'رتب هذه الأفكار حسب أثرها وجهدها لمجتمعي: [الأفكار].'],
-    ['توثيق الإجراءات', 'اكتب إجراءً واضحًا لفريق الإدارة عند [الموقف] مع المسؤول والخطوة التالية.'],
-    ['مراجعة تجربة العضو', 'اعمل مراجعة لمسار العضو من الدعوة حتى طلب الدعم، وحدد نقاط التعقيد.'],
-  ] },
-];
-// Keep the public library focused on flows with a dedicated editor, preview and live action.
-// Structure and role ideas return when their permission and placement reviews are complete.
-const readyAiTemplates = new Set([
-  'جيف آواي سريع', 'جائزة اشتراك', 'جائزة لأكثر من فائز',
-  'لوحة تذاكر الدعم', 'دعم العملاء', 'قسم طلب المساعدة',
-  'إعلان مع صورة', 'رسالة ترحيب واحدة', 'إعلان فعالية',
-  'استطلاع رأي',
-]);
-const aiPromptLibrary = aiSuggestionGroups.flatMap(group => group.prompts.map(([title, prompt, mode]) => ({ title, prompt, category: group.name, mode: mode || group.mode }))).filter(item => item.mode === 'execute' && readyAiTemplates.has(item.title));
 function aiActionChoices(answer) {
   return String(answer || '').split('\n').map(line => line.trim().replace(/^\*+/, '').trim()).map(line => /^[0-9٠-٩۰-۹]{1,2}[.)،:\-]\s*(.{8,300})/.exec(line)?.[1]?.replace(/^\*+|\*+$/g, '').trim()).filter(Boolean).slice(0, 10);
 }
 const aiLibraryFlow = item => {
-  if (item.mode !== 'execute') return 'احصل على أفكار أو خطوات ← اختر ما يناسبك ← راجع إجراءً حقيقيًا قبل تطبيقه؛ القدرات غير المتاحة ستوضح لك';
-  if (item.category === 'تذاكر الدعم' || (item.category === 'بطاقات وملفات' && item.title.includes('دعم'))) return 'حدد قناة اللوحة ورتبة الدعم ← راجع النص والبنر ← أكد النشر ← العميل يفتح تذكرة خاصة ← الفريق يستلمها ويتابعها';
+  if (item.kind === 'tickets') return 'حدد قناة اللوحة ورتبة الدعم ← راجع النص والبنر ← أكد النشر ← العميل يفتح تذكرة خاصة ← الفريق يستلمها ويتابعها';
   if (item.category === 'الجيف آواي' || item.title.includes('جيف آواي')) return 'حدد الجائزة والمدة والقناة ← راجع البطاقة والبنر ← أكد النشر ← يتفاعل الأعضاء مع زر المشاركة';
-  if (item.title.includes('تحميل') || item.title.includes('دليل قابل')) return 'حدد القناة والنص والملف ← راجع البطاقة ← أكد النشر ← يظهر زر التحميل للأعضاء';
-  if (item.title.includes('استطلاع')) return 'حدد السؤال والخيارات والقناة ← راجع الاستطلاع ← أكد النشر ← يصوت الأعضاء';
-  if (item.category === 'بناء السيرفر' || item.category === 'القنوات' || item.category === 'الرتب') return 'صف ما تريد ← راجع القنوات والرتب الموجودة ← افتح خطة التغييرات ← أكد التطبيق في Discord';
+  if (item.kind === 'poll') return 'حدد السؤال والخيارات والقناة ← راجع الاستطلاع ← أكد النشر ← يصوت الأعضاء';
   return 'حدد القناة والنص والصورة إن وجدت ← راجع المحتوى وموضع الصورة ← أكد النشر في Discord';
 };
 async function assistant() {
@@ -422,7 +263,7 @@ async function assistant() {
     $('#aiLibraryCategories').querySelectorAll('[data-ai-category]').forEach(button => button.onclick = () => { libraryCategory = button.dataset.aiCategory; renderLibrary(); });
     const query = $('#aiLibrarySearch').value.trim().toLocaleLowerCase('ar');
     const matched = aiPromptLibrary.map((item, index) => ({ ...item, index })).filter(item => (libraryCategory === 'الكل' || item.category === libraryCategory) && (!query || `${item.title} ${item.category} ${item.prompt}`.toLocaleLowerCase('ar').includes(query)));
-    $('#aiLibraryList').innerHTML = matched.length ? matched.map(item => `<button type="button" class="ai-library-item" data-ai-template="${item.index}"><span>${item.mode === 'execute' ? '⚡ إجراء بعد المراجعة' : '✦ اختر خطوة للتطبيق'}</span><b>${esc(item.title)}</b><small>${esc(item.prompt)}</small><small>المسار: ${esc(aiLibraryFlow(item))}</small></button>`).join('') : '<p class="ai-library-empty">لا توجد نتائج. جرّب كلمة أخرى.</p>';
+    $('#aiLibraryList').innerHTML = matched.length ? matched.map(item => `<button type="button" class="ai-library-item" data-ai-template="${item.index}"><span>⚡ إجراء بعد المراجعة</span><b>${esc(item.title)}</b><small>${esc(item.prompt)}</small><small>المسار: ${esc(aiLibraryFlow(item))}</small></button>`).join('') : '<p class="ai-library-empty">لا توجد نتائج. جرّب كلمة أخرى.</p>';
     $('#aiLibraryList').querySelectorAll('[data-ai-template]').forEach(button => button.onclick = () => {
       selectedTemplate = aiPromptLibrary[Number(button.dataset.aiTemplate)];
       if (selected && messages.length) {
@@ -446,9 +287,8 @@ async function assistant() {
   const renderProposal = item => {
     const proposal = item.status === 'completed' ? item.proposal : null;
     if (!proposal) return '';
-    const operations = proposal.operations || [];
-    const interactiveSummary = proposal.interactive?.kind === 'giveaway' ? `🎉 جيف آواي${proposal.interactive.prize ? `: ${esc(proposal.interactive.prize)}` : ' · أكمل الجائزة والمدة في بطاقة المراجعة'}${proposal.interactive.durationMinutes ? ` · ${esc(proposal.interactive.winnerCount)} فائز · ${esc(proposal.interactive.durationMinutes)} دقيقة` : ''}` : proposal.interactive?.kind === 'poll' ? `📊 استطلاع${proposal.interactive.question ? `: ${esc(proposal.interactive.question)}` : ' · أكمل السؤال والخيارات في بطاقة المراجعة'}` : proposal.interactive?.kind === 'download' ? `📦 بطاقة تحميل${proposal.interactive.title ? `: ${esc(proposal.interactive.title)}` : ''} · ستختار الملف عند المراجعة` : `🎫 لوحة تذاكر${proposal.interactive?.title ? `: ${esc(proposal.interactive.title)}` : ' · أكمل العنوان والوصف في بطاقة المراجعة'}`;
-    return `<div class="ai-action-card"><span class="ai-action-step">${proposal.draft ? 'أكمل التفاصيل قبل التنفيذ' : 'الخطوة الأخيرة قبل التنفيذ'}</span><b>راجع ما سيتغير في ${esc(state.data?.guild?.name || 'سيرفرك')}</b><p><strong>طلبك:</strong> ${esc(proposal.review_request || item.prompt)}</p>${operations.length ? `<p><strong>التغييرات:</strong> ${operations.map(op => `${op.action === 'update' ? 'تعديل' : 'إنشاء'} ${op.resource_type === 'role' ? 'رتبة' : op.resource_type === 'category' ? 'تصنيف' : 'قناة'}: ${esc(op.name)}`).join(' · ')}</p>${item.change_set_status === 'succeeded' ? '<span class="badge good">طُبقت وسُجلت في سجل التغييرات</span>' : `<button class="btn primary small" type="button" data-ai-plan="${esc(item.id)}">مراجعة التغييرات وتأكيدها</button>`}` : ''}${proposal.structure ? `<p>حدّد العناصر التي تريد بناءها، ثم راجع خطة التغييرات قبل التطبيق.</p><button class="btn primary small" type="button" data-ai-structure="${esc(item.id)}">تجهيز القنوات والرتب</button>` : ''}${proposal.message ? `<p><strong>رسالة Discord:</strong> ${esc(proposal.message.content || 'حدد القناة واكتب النص النهائي في بطاقة المراجعة.')}</p>${item.sent_message_id ? `<a class="btn small secondary" href="https://discord.com/channels/${encodeURIComponent(guild)}/${encodeURIComponent(item.sent_channel_id)}/${encodeURIComponent(item.sent_message_id)}" target="_blank" rel="noopener noreferrer">تم الإرسال · عرض في Discord</a>` : `<button class="btn primary small" type="button" data-ai-message="${esc(item.id)}">مراجعة الرسالة وتأكيد النشر</button>`}` : ''}${proposal.interactive ? `<p><strong>النظام التفاعلي:</strong> ${interactiveSummary}${item.has_attachment && proposal.interactive.kind !== 'poll' ? ' · 🖼️ مع بنر' : ''}</p>${item.interactive_message_id ? `<a class="btn small secondary" href="https://discord.com/channels/${encodeURIComponent(guild)}/${encodeURIComponent(item.interactive_channel_id)}/${encodeURIComponent(item.interactive_message_id)}" target="_blank" rel="noopener noreferrer">تم النشر · عرض في Discord</a>` : `<button class="btn primary small" type="button" data-ai-interactive="${esc(item.id)}">إكمال التفاصيل ومراجعة النشر</button>`}` : ''}<small>${item.sent_message_id || item.interactive_message_id || item.change_set_status === 'succeeded' ? 'راجع العملية المنفذة في السجل.' : 'لم يُنفّذ شيء بعد. يمكنك مراجعة التفاصيل قبل التأكيد.'}</small></div>`;
+    const interactiveSummary = proposal.interactive?.kind === 'giveaway' ? `🎉 جيف آواي${proposal.interactive.prize ? `: ${esc(proposal.interactive.prize)}` : ' · أكمل الجائزة والمدة في بطاقة المراجعة'}${proposal.interactive.durationMinutes ? ` · ${esc(proposal.interactive.winnerCount)} فائز · ${esc(proposal.interactive.durationMinutes)} دقيقة` : ''}` : proposal.interactive?.kind === 'poll' ? `📊 استطلاع${proposal.interactive.question ? `: ${esc(proposal.interactive.question)}` : ' · أكمل السؤال والخيارات في بطاقة المراجعة'}` : `🎫 لوحة تذاكر${proposal.interactive?.title ? `: ${esc(proposal.interactive.title)}` : ' · أكمل العنوان والوصف في بطاقة المراجعة'}`;
+    return `<div class="ai-action-card"><span class="ai-action-step">${proposal.draft ? 'أكمل التفاصيل قبل التنفيذ' : 'الخطوة الأخيرة قبل التنفيذ'}</span><b>راجع ما سيتغير في ${esc(state.data?.guild?.name || 'سيرفرك')}</b><p><strong>طلبك:</strong> ${esc(proposal.review_request || item.prompt)}</p>${proposal.message ? `<p><strong>رسالة Discord:</strong> ${esc(proposal.message.content || 'حدد القناة واكتب النص النهائي في بطاقة المراجعة.')}</p>${item.sent_message_id ? `<a class="btn small secondary" href="https://discord.com/channels/${encodeURIComponent(guild)}/${encodeURIComponent(item.sent_channel_id)}/${encodeURIComponent(item.sent_message_id)}" target="_blank" rel="noopener noreferrer">تم الإرسال · عرض في Discord</a>` : `<button class="btn primary small" type="button" data-ai-message="${esc(item.id)}">مراجعة الرسالة وتأكيد النشر</button>`}` : ''}${proposal.interactive ? `<p><strong>النظام التفاعلي:</strong> ${interactiveSummary}${item.has_attachment && proposal.interactive.kind !== 'poll' ? ' · 🖼️ مع بنر' : ''}</p>${item.interactive_message_id ? `<a class="btn small secondary" href="https://discord.com/channels/${encodeURIComponent(guild)}/${encodeURIComponent(item.interactive_channel_id)}/${encodeURIComponent(item.interactive_message_id)}" target="_blank" rel="noopener noreferrer">تم النشر · عرض في Discord</a>` : `<button class="btn primary small" type="button" data-ai-interactive="${esc(item.id)}">إكمال التفاصيل ومراجعة النشر</button>`}` : ''}<small>${item.sent_message_id || item.interactive_message_id || item.change_set_status === 'succeeded' ? 'راجع العملية المنفذة في السجل.' : 'لم يُنفّذ شيء بعد. يمكنك مراجعة التفاصيل قبل التأكيد.'}</small></div>`;
   };
   const renderList = () => {
     list.innerHTML = conversations.length ? conversations.map(item => `<div class="ai-conversation-row ${item.id === selected ? 'active' : ''}"><button type="button" class="ai-conversation" data-ai-conversation="${esc(item.id)}"><b>${esc(item.title)}</b><small>${new Date(item.updated_at).toLocaleDateString('ar-SA')}</small></button><button type="button" class="ai-delete-conversation" data-ai-delete="${esc(item.id)}" aria-label="حذف محادثة ${esc(item.title)}" title="حذف المحادثة">⌫</button></div>`).join('') : '<p class="ai-empty-list">محادثاتك ستظهر هنا بعد أول رسالة.</p>';
@@ -492,42 +332,6 @@ async function assistant() {
         await api(`/api/ai/requests/${encodeURIComponent(item.id)}/send-message`, { method: 'POST', body: JSON.stringify({ confirmed: true, publishAnswer: true, channelId: $('#aiAnswerChannel').value, content: $('#aiAnswerContent').value }) });
         closeDialog(); await loadMessages(); toast('نُشرت الرسالة في Discord.');
       } catch (error) { modalError(error); $('#aiAnswerSend').disabled = false; } };
-    });
-    thread.querySelectorAll('[data-ai-plan]').forEach(button => button.onclick = run(async () => {
-      const item = messages.find(entry => entry.id === button.dataset.aiPlan);
-      if (!item?.proposal?.operations?.length) return;
-      const created = await api('/api/change-sets', { method: 'POST', body: JSON.stringify({ guildId: guild, aiRequestId: item.id }) });
-      await showPlan(created.changeSet.id, true);
-    }));
-    thread.querySelectorAll('[data-ai-structure]').forEach(button => button.onclick = () => {
-      const item = messages.find(entry => entry.id === button.dataset.aiStructure);
-      if (!item?.proposal?.structure) return;
-      const taskTitle = item.library_title || '';
-      const staffOnly = /فريق خاص/.test(taskTitle);
-      const readOnly = /للـ?قراءة/.test(taskTitle);
-      const example = /هيكل/.test(taskTitle) ? 'تصنيف: البداية\nقناة: ابدأ-هنا\nقناة: القوانين\nقناة: الإعلانات\nتصنيف: المجتمع\nقناة: الدردشة\nقناة: مشاركة-الصور\nصوتية: المجلس\nرتبة: عضو' : /قسم ترحيب/.test(taskTitle) ? 'تصنيف: البداية\nقناة: ابدأ-هنا\nقناة: القوانين' : staffOnly ? 'تصنيف: الفريق\nقناة: غرفة-الفريق' : readOnly ? 'تصنيف: الأخبار\nقناة: الإعلانات' : /صوتية/.test(taskTitle) ? 'صوتية: المجلس' : /رتبة فريق الدعم/.test(taskTitle) ? 'رتبة: الدعم' : /رتبة أعضاء/.test(taskTitle) ? 'رتبة: الأعضاء' : /رتبة/.test(taskTitle) ? 'رتبة: عضو' : /تصنيف/.test(taskTitle) ? 'تصنيف: المجتمع' : 'قناة: قناة-جديدة';
-      const staffField = staffOnly ? `<label>رتبة الفريق التي ستشاهد القناة<select id="aiStructureStaffRole"><option value="">اختر رتبة موجودة</option>${(state.data.roles || []).filter(role => role.id !== guild).map(role => `<option value="${esc(role.id)}">${esc(role.name)}</option>`).join('')}</select></label>` : '';
-      modal('تجهيز هيكل السيرفر', `<p class="form-note">اكتب كل عنصر في سطر مستقل. الأنواع: تصنيف، قناة، صوتية، رتبة. القنوات أسفل التصنيف ستُوضع تحته بعد مراجعتك.</p><label>العناصر المطلوب إنشاؤها<textarea id="aiStructureLines" rows="7" maxlength="1600">${esc(example)}</textarea></label>${staffField}${readOnly ? '<p class="form-note">ستكون القناة للقراءة فقط للأعضاء، ويمكن للإدارة النشر.</p>' : ''}<section class="ai-discord-preview" aria-label="معاينة هيكل السيرفر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>العناصر الجديدة مميزة باللون البنفسجي</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${(state.data?.channels || []).filter(channel => [0, 2, 4].includes(channel.type)).slice(0, 8).map(channel => `<span>${channel.type === 4 ? '▾' : channel.type === 2 ? '◖' : '#'} ${esc(channel.name)}</span>`).join('')}<div id="aiStructurePreviewItems"></div></aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name">معاينة ترتيب السيرفر</div><p class="ai-structure-preview-hint">هذه معاينة للهيكل فقط. سيعرض البوت التغييرات الدقيقة والصلاحيات في خطة المراجعة التالية قبل التطبيق.</p></div>${previewMemberRail()}</div></section><p class="form-note">هذه مسودة فقط. ستظهر خطة تغييرات منفصلة للمراجعة قبل أن يغيّر البوت السيرفر.</p>`, '<button id="aiStructureCancel" class="btn secondary">إلغاء</button><button id="aiStructureReview" class="btn primary">مراجعة خطة التغييرات</button>');
-      const updateStructurePreview = () => { $('#aiStructurePreviewItems').innerHTML = $('#aiStructureLines').value.split('\n').map(line => /^(تصنيف|قناة|صوتية|رتبة)\s*[:：-]\s*(.+)$/u.exec(line.trim())).filter(Boolean).slice(0, 30).map(match => `<span class="ai-preview-new">${match[1] === 'تصنيف' ? '▾' : match[1] === 'صوتية' ? '◖' : match[1] === 'رتبة' ? '◇' : '#'} ${esc(match[2])}</span>`).join(''); };
-      $('#aiStructureLines').oninput = updateStructurePreview;
-      updateStructurePreview();
-      $('#aiStructureCancel').onclick = closeDialog;
-      $('#aiStructureReview').onclick = async event => { event.currentTarget.disabled = true; try {
-        const lines = $('#aiStructureLines').value.split('\n').map(line => line.trim()).filter(Boolean);
-        if (!lines.length || lines.length > 30) throw Error('اكتب من عنصر واحد إلى 30 عنصرًا للمراجعة.');
-        if (staffOnly && !$('#aiStructureStaffRole').value) throw Error('اختر رتبة الفريق قبل مراجعة القناة الخاصة.');
-        let parentName = '';
-        const operations = lines.map(line => {
-          const match = /^(تصنيف|قناة|صوتية|رتبة)\s*[:：-]\s*(.+)$/u.exec(line);
-          if (!match || /\[[^\]]+\]/.test(match[2]) || !match[2].trim()) throw Error('اكتب كل سطر بصيغة «قناة: الاسم» أو «تصنيف: الاسم» أو «صوتية: الاسم» أو «رتبة: الاسم».');
-          const name = match[2].trim();
-          if (match[1] === 'تصنيف') { parentName = name; return { resource_type: 'category', action: 'create', name }; }
-          if (match[1] === 'رتبة') return { resource_type: 'role', action: 'create', name };
-          return { resource_type: 'channel', action: 'create', name, type: match[1] === 'صوتية' ? 2 : 0, ...(parentName ? { parent_name: parentName } : {}), ...(staffOnly ? { access: 'staff_only', staff_role_id: $('#aiStructureStaffRole').value } : readOnly && match[1] === 'قناة' ? { access: 'read_only' } : {}) };
-        });
-        const created = await api('/api/change-sets', { method: 'POST', body: JSON.stringify({ guildId: guild, operations }) });
-        closeDialog(); await loadGuild(); await showPlan(created.changeSet.id, true);
-      } catch (error) { modalError(error); $('#aiStructureReview').disabled = false; } };
     });
     thread.querySelectorAll('[data-ai-message]').forEach(button => button.onclick = () => {
       const item = messages.find(entry => entry.id === button.dataset.aiMessage);
@@ -583,13 +387,12 @@ async function assistant() {
     });
     thread.querySelectorAll('[data-ai-interactive]').forEach(button => button.onclick = () => {
       const item = messages.find(entry => entry.id === button.dataset.aiInteractive);
-      const plan = item?.proposal?.interactive; if (!plan) return;
+      const plan = item?.proposal?.interactive; if (!plan || !['giveaway', 'tickets', 'poll'].includes(plan.kind)) return;
       const channels = (state.data.channels || []).filter(channel => [0, 5].includes(channel.type));
       const knownChannel = channels.some(channel => channel.name.toLowerCase() === String(plan.channel || '').toLowerCase());
       const channelField = `<label>قناة النشر<select id="aiInteractiveChannel"><option value="">اختر قناة نصية</option>${channels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === String(plan.channel || '').toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}${plan.kind === 'tickets' ? `<option value="__create__" ${knownChannel ? '' : 'selected'}>＋ أنشئ قناة دعم جديدة</option>` : ''}</select></label>${plan.kind === 'tickets' ? `<label>اسم القناة الجديدة (إذا اخترت إنشاءها)<input id="aiNewSupportChannel" maxlength="100" value="${esc(!knownChannel && plan.channel ? plan.channel : 'الدعم')}"></label>` : ''}`;
-      const downloadFields = `${channelField}<label>عنوان البطاقة<input id="aiDownloadTitle" maxlength="100" value="${esc(plan.title)}"></label><label>وصف الملف<textarea id="aiDownloadDescription" maxlength="800" rows="3">${esc(plan.description)}</textarea></label><label>اختر ملف التحميل<input id="aiDownloadFile" type="file" accept=".pdf,.zip,.txt,.png,.jpg,.jpeg,.webp,application/pdf,application/zip,text/plain,image/png,image/jpeg,image/webp" required></label><p class="form-note">ملف واحد حتى 5 ميجابايت. سيظهر في القناة المحددة كبطاقة وزر تحميل. يحتفظ البوت بالملف في قناة خاصة داخل سيرفرك.</p>`;
-      const fields = plan.kind === 'download' ? downloadFields : plan.kind === 'giveaway' ? `${channelField}<label>الجائزة<input id="aiPrize" maxlength="160" value="${esc(plan.prize)}"></label><div class="form-grid two"><label>المدة بالدقائق<input id="aiDuration" type="number" min="5" max="43200" value="${Number(plan.durationMinutes) || 60}"></label><label>عدد الفائزين<input id="aiWinners" type="number" min="1" max="20" value="${Number(plan.winnerCount) || 1}"></label></div><p class="form-note">ينشر البوت زر مشاركة ويسحب الفائزين عشوائيًا عند انتهاء المدة.</p>` : plan.kind === 'poll' ? `${channelField}<label>السؤال<input id="aiPollQuestion" maxlength="180" value="${esc(plan.question)}"></label>${plan.options.map((option, index) => `<label>الخيار ${index + 1}<input data-ai-poll-option maxlength="70" value="${esc(option)}"></label>`).join('')}<p class="form-note">يسمح الاستطلاع بصوت واحد لكل عضو، ويمكنه تغيير اختياره. تظهر النتائج له بعد التصويت.</p>` : `${channelField}<label>عنوان لوحة الدعم<input id="aiTicketTitle" maxlength="100" value="${esc(plan.title)}"></label><label>الوصف<textarea id="aiTicketDescription" maxlength="800" rows="3">${esc(plan.description)}</textarea></label><label>تصنيف التذاكر (اختياري)<select id="aiTicketCategory"><option value="">دون تصنيف</option>${(state.data.channels || []).filter(channel => channel.type === 4).map(channel => `<option value="${esc(channel.id)}">${esc(channel.name)}</option>`).join('')}</select></label><label>رتبة فريق الدعم (مطلوبة)<select id="aiStaffRole"><option value="">اختر رتبة الدعم</option>${(state.data.roles || []).filter(role => role.id !== guild).map(role => `<option value="${esc(role.id)}">${esc(role.name)}</option>`).join('')}</select></label><p class="form-note">يفتح زر الدعم قناة خاصة لكل عضو. التذكرة خاصة بصاحبها ورتبة الدعم المحددة.</p>`;
-      modal(plan.kind === 'giveaway' ? 'مراجعة الجيف آواي' : plan.kind === 'poll' ? 'مراجعة الاستطلاع' : plan.kind === 'download' ? 'مراجعة بطاقة تحميل الملف' : 'مراجعة لوحة تذاكر الدعم', `${fields}${plan.kind !== 'poll' ? '<label>بنر اختياري يظهر مع البطاقة<input id="aiInteractiveImage" type="file" accept="image/png,image/jpeg,image/webp"></label><label>موضع البنر<select id="aiInteractiveImagePosition"><option value="above">فوق التفاصيل</option><option value="below">تحت التفاصيل</option></select></label>' : ''}<section class="ai-discord-preview" aria-label="معاينة قبل النشر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>شكل تقريبي يتحدث مع تعديل الحقول · لا ينشر شيئًا</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${channels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiPreviewChannelName"># اختر قناة النشر</div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div>${item.has_attachment && plan.kind !== 'poll' ? `<img class="ai-discord-banner" src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="البنر المرفق">` : ''}<div class="ai-discord-embed"><b id="aiPreviewTitle"></b><p id="aiPreviewDescription"></p><small id="aiPreviewMeta"></small></div><span class="ai-discord-button" id="aiPreviewButton"></span></div>${previewMemberRail()}</div></section><label class="check-row"><input id="aiInteractiveConfirmed" type="checkbox">راجعت الإعدادات وأوافق على النشر في Discord.</label>`, '<button class="btn secondary" id="aiInteractiveCancel">إلغاء</button><button class="btn primary" id="aiInteractiveLaunch" disabled>نعم، أؤكد التنفيذ</button>');
+      const fields = plan.kind === 'giveaway' ? `${channelField}<label>الجائزة<input id="aiPrize" maxlength="160" value="${esc(plan.prize)}"></label><div class="form-grid two"><label>المدة بالدقائق<input id="aiDuration" type="number" min="5" max="43200" value="${Number(plan.durationMinutes) || 60}"></label><label>عدد الفائزين<input id="aiWinners" type="number" min="1" max="20" value="${Number(plan.winnerCount) || 1}"></label></div><p class="form-note">ينشر البوت زر مشاركة ويسحب الفائزين عشوائيًا عند انتهاء المدة.</p>` : plan.kind === 'poll' ? `${channelField}<label>السؤال<input id="aiPollQuestion" maxlength="180" value="${esc(plan.question)}"></label>${plan.options.map((option, index) => `<label>الخيار ${index + 1}<input data-ai-poll-option maxlength="70" value="${esc(option)}"></label>`).join('')}<p class="form-note">يسمح الاستطلاع بصوت واحد لكل عضو، ويمكنه تغيير اختياره. تظهر النتائج له بعد التصويت.</p>` : `${channelField}<label>عنوان لوحة الدعم<input id="aiTicketTitle" maxlength="100" value="${esc(plan.title)}"></label><label>الوصف<textarea id="aiTicketDescription" maxlength="800" rows="3">${esc(plan.description)}</textarea></label><label>تصنيف التذاكر (اختياري)<select id="aiTicketCategory"><option value="">دون تصنيف</option>${(state.data.channels || []).filter(channel => channel.type === 4).map(channel => `<option value="${esc(channel.id)}">${esc(channel.name)}</option>`).join('')}</select></label><label>رتبة فريق الدعم (مطلوبة)<select id="aiStaffRole"><option value="">اختر رتبة الدعم</option>${(state.data.roles || []).filter(role => role.id !== guild).map(role => `<option value="${esc(role.id)}">${esc(role.name)}</option>`).join('')}</select></label><p class="form-note">يفتح زر الدعم قناة خاصة لكل عضو. التذكرة خاصة بصاحبها ورتبة الدعم المحددة.</p>`;
+      modal(plan.kind === 'giveaway' ? 'مراجعة الجيف آواي' : plan.kind === 'poll' ? 'مراجعة الاستطلاع' : 'مراجعة لوحة تذاكر الدعم', `${fields}${plan.kind !== 'poll' ? '<label>بنر اختياري يظهر مع البطاقة<input id="aiInteractiveImage" type="file" accept="image/png,image/jpeg,image/webp"></label><label>موضع البنر<select id="aiInteractiveImagePosition"><option value="above">فوق التفاصيل</option><option value="below">تحت التفاصيل</option></select></label>' : ''}<section class="ai-discord-preview" aria-label="معاينة قبل النشر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>شكل تقريبي يتحدث مع تعديل الحقول · لا ينشر شيئًا</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${channels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiPreviewChannelName"># اختر قناة النشر</div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div>${item.has_attachment && plan.kind !== 'poll' ? `<img class="ai-discord-banner" src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="البنر المرفق">` : ''}<div class="ai-discord-embed"><b id="aiPreviewTitle"></b><p id="aiPreviewDescription"></p><small id="aiPreviewMeta"></small></div><span class="ai-discord-button" id="aiPreviewButton"></span></div>${previewMemberRail()}</div></section><label class="check-row"><input id="aiInteractiveConfirmed" type="checkbox">راجعت الإعدادات وأوافق على النشر في Discord.</label>`, '<button class="btn secondary" id="aiInteractiveCancel">إلغاء</button><button class="btn primary" id="aiInteractiveLaunch" disabled>نعم، أؤكد التنفيذ</button>');
       if (plan.kind === 'giveaway') {
         $('#aiPrize').closest('label').insertAdjacentHTML('beforebegin', `<label>عنوان الجيف آواي<input id="aiGiveawayTitle" maxlength="180" value="${esc(plan.title || (plan.prize ? `🎉 جيف آواي: ${plan.prize}` : '🎉 جيف آواي مميز'))}"></label><label>النص الذي سيظهر للأعضاء<textarea id="aiGiveawayDescription" maxlength="1000" rows="3">${esc(plan.description || 'شارك الآن بالضغط على الزر، ونتمنى لك حظًا سعيدًا!')}</textarea></label><label>لون بطاقة الجيف آواي<input id="aiGiveawayColor" type="color" value="#8b5cf6"></label>`);
       }
@@ -616,16 +419,16 @@ async function assistant() {
       };
       const updateInteractivePreview = () => {
         const value = selector => document.querySelector(selector)?.value?.trim() || '';
-        const title = plan.kind === 'giveaway' ? value('#aiGiveawayTitle') || 'عنوان الجيف آواي' : plan.kind === 'poll' ? value('#aiPollQuestion') || 'سؤال الاستطلاع' : plan.kind === 'download' ? value('#aiDownloadTitle') || 'عنوان الملف' : value('#aiTicketTitle') || 'عنوان لوحة الدعم';
-        const description = plan.kind === 'giveaway' ? `${value('#aiGiveawayDescription')}\n\nالجائزة: ${value('#aiPrize') || '—'}\nمدة المشاركة: ${value('#aiDuration') || '—'} دقيقة · عدد الفائزين: ${value('#aiWinners') || '—'}` : plan.kind === 'poll' ? [...document.querySelectorAll('[data-ai-poll-option]')].map((field, index) => `${index + 1}. ${field.value.trim()}`).join('\n') : plan.kind === 'download' ? value('#aiDownloadDescription') : value('#aiTicketDescription');
+        const title = plan.kind === 'giveaway' ? value('#aiGiveawayTitle') || 'عنوان الجيف آواي' : plan.kind === 'poll' ? value('#aiPollQuestion') || 'سؤال الاستطلاع' : value('#aiTicketTitle') || 'عنوان لوحة الدعم';
+        const description = plan.kind === 'giveaway' ? `${value('#aiGiveawayDescription')}\n\nالجائزة: ${value('#aiPrize') || '—'}\nمدة المشاركة: ${value('#aiDuration') || '—'} دقيقة · عدد الفائزين: ${value('#aiWinners') || '—'}` : plan.kind === 'poll' ? [...document.querySelectorAll('[data-ai-poll-option]')].map((field, index) => `${index + 1}. ${field.value.trim()}`).join('\n') : value('#aiTicketDescription');
         const channel = $('#aiInteractiveChannel').selectedOptions[0]?.textContent || 'اختر قناة النشر';
         $('#aiPreviewChannelName').textContent = channel.startsWith('#') ? channel : `# ${channel}`;
         document.querySelectorAll('[data-preview-channel]').forEach(entry => entry.classList.toggle('active', entry.dataset.previewChannel === $('#aiInteractiveChannel').value));
         $('#aiPreviewTitle').textContent = title;
         if (plan.kind === 'giveaway') $('.ai-discord-embed').style.borderColor = $('#aiGiveawayColor').value;
         $('#aiPreviewDescription').textContent = description || 'سيظهر وصفك هنا.';
-        $('#aiPreviewMeta').textContent = `قناة النشر: ${channel}${plan.kind === 'download' && $('#aiDownloadFile').files[0] ? ` · ${$('#aiDownloadFile').files[0].name}` : ''}`;
-        $('#aiPreviewButton').textContent = plan.kind === 'giveaway' ? '🎉 مشاركة' : plan.kind === 'poll' ? '📊 تصويت' : plan.kind === 'download' ? '⬇ تحميل الملف' : '🎫 فتح تذكرة دعم';
+        $('#aiPreviewMeta').textContent = `قناة النشر: ${channel}`;
+        $('#aiPreviewButton').textContent = plan.kind === 'giveaway' ? '🎉 مشاركة' : plan.kind === 'poll' ? '📊 تصويت' : '🎫 فتح تذكرة دعم';
       };
       $('#dialogContent').addEventListener('input', updateInteractivePreview);
       $('#dialogContent').addEventListener('change', updateInteractivePreview);
@@ -633,14 +436,6 @@ async function assistant() {
       $('#aiInteractiveCancel').onclick = () => { if (previewImageUrl) URL.revokeObjectURL(previewImageUrl); closeDialog(); };
       $('#aiInteractiveConfirmed').onchange = event => { $('#aiInteractiveLaunch').disabled = !event.target.checked; };
       $('#aiInteractiveLaunch').onclick = async event => { event.currentTarget.disabled = true; try {
-        if (plan.kind === 'download') {
-          const file = $('#aiDownloadFile').files[0];
-          if (!file || !$('#aiInteractiveChannel').value) throw Error('اختر الملف وقناة النشر أولًا.');
-          if (!$('#aiDownloadTitle').value.trim() || !$('#aiDownloadDescription').value.trim()) throw Error('أكمل عنوان البطاقة ووصفها.');
-          const imageFile = $('#aiInteractiveImage')?.files[0];
-          await api(`/api/ai/requests/${encodeURIComponent(item.id)}/launch-download`, { method: 'POST', body: JSON.stringify({ confirmed: true, channelId: $('#aiInteractiveChannel').value, title: $('#aiDownloadTitle').value, description: $('#aiDownloadDescription').value, file: await prepareDownloadFile(file), image: imageFile ? await prepareAiImage(imageFile) : undefined }) });
-          closeDialog(); await loadMessages(); toast('نُشرت بطاقة التحميل في Discord.'); return;
-        }
         const creatingSupportChannel = plan.kind === 'tickets' && $('#aiInteractiveChannel').value === '__create__';
         if (!$('#aiInteractiveChannel').value || (plan.kind === 'giveaway' && (!$('#aiPrize').value.trim() || !$('#aiDuration').value)) || (plan.kind === 'poll' && (!$('#aiPollQuestion').value.trim() || [...document.querySelectorAll('[data-ai-poll-option]')].some(field => !field.value.trim()))) || (plan.kind === 'tickets' && (!$('#aiTicketTitle').value.trim() || !$('#aiTicketDescription').value.trim() || !$('#aiStaffRole').value))) throw Error('أكمل الحقول المطلوبة في بطاقة المراجعة قبل النشر.');
         const imageFile = $('#aiInteractiveImage')?.files[0];
@@ -666,7 +461,7 @@ async function assistant() {
     busy = true; $('#aiSend').disabled = true; notice.textContent = '';
     try {
       const image = attachedFile?.type.startsWith('image/') ? await prepareAiImage(attachedFile) : undefined;
-      const result = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, conversationId: selected || undefined, prompt, image, libraryMode: selectedTemplate?.mode, libraryTitle: selectedTemplate?.title, libraryCategory: selectedTemplate?.category }) });
+      const result = await api('/api/ai/requests', { method: 'POST', body: JSON.stringify({ guildId: guild, conversationId: selected || undefined, prompt, image, libraryMode: selectedTemplate ? 'execute' : undefined, libraryTitle: selectedTemplate?.title, libraryCategory: selectedTemplate?.category }) });
       if (!active()) return;
       selected = result.conversationId; sessionStorage.setItem(storageKey, selected); input.value = ''; selectedTemplate = null; $('#aiTemplateDraft').hidden = true; attachedFile = null; $('#aiFile').value = ''; showAttachment();
       messages.push({ id: result.id, prompt, status: 'pending', has_attachment: !!image }); renderMessages();
@@ -756,7 +551,7 @@ function activity() {
   const names = { 'change_set.create': 'حُفظت خطة تغييرات', 'change_set.apply': 'طُبقت خطة تغييرات', 'change_set.failed': 'تعثر تطبيق خطة', 'bot.settings.update': 'حُدثت إعدادات البوت', 'guild.verify': 'تم التحقق من الربط', 'guild.rename': 'تغيّر اسم السيرفر', 'schedule.create': 'جُدولت رسالة', 'schedule.cancel': 'أُلغيت رسالة مجدولة', 'analytics.settings': 'حُدث إعداد جمع النشاط' };
   const publications = state.data.publications || [];
   const applied = (state.data.changeSets || []).filter(change => change.status === 'succeeded').map(change => ({ kind: 'plan', at: change.updated_at, name: changeName(change), id: change.id }));
-  const published = publications.map(item => ({ kind: 'publication', at: item.published_at, name: item.interactive_kind === 'giveaway' ? `نُشر جيف آواي: ${item.proposal?.interactive?.prize || 'جائزة'}` : item.interactive_kind === 'tickets' ? `نُشرت لوحة تذاكر: ${item.proposal?.interactive?.title || 'الدعم'}` : item.interactive_kind === 'poll' ? `نُشر استطلاع: ${item.proposal?.interactive?.question || 'استطلاع'}` : item.interactive_kind === 'download' ? `نُشرت بطاقة تحميل: ${item.proposal?.interactive?.title || 'ملف'}` : 'نُشرت رسالة', channelId: item.interactive_channel_id || item.sent_channel_id, messageId: item.interactive_message_id || item.sent_message_id }));
+  const published = publications.map(item => ({ kind: 'publication', at: item.published_at, name: item.interactive_kind === 'giveaway' ? `نُشر جيف آواي: ${item.proposal?.interactive?.prize || 'جائزة'}` : item.interactive_kind === 'tickets' ? `نُشرت لوحة تذاكر: ${item.proposal?.interactive?.title || 'الدعم'}` : item.interactive_kind === 'poll' ? `نُشر استطلاع: ${item.proposal?.interactive?.question || 'استطلاع'}` : 'نُشرت رسالة', channelId: item.interactive_channel_id || item.sent_channel_id, messageId: item.interactive_message_id || item.sent_message_id }));
   const completed = [...applied, ...published].sort((a, b) => new Date(b.at) - new Date(a.at));
   const completedRows = completed.length ? `<div class="rows">${completed.map(item => `<div class="row"><span class="row-icon">✓</span><div class="row-main"><b>${esc(item.name)}</b><small>${date(item.at)}</small></div>${item.kind === 'plan' ? `<button class="btn text" data-plan="${esc(item.id)}">عرض ←</button>` : `<a class="btn text" href="https://discord.com/channels/${encodeURIComponent(state.guild)}/${encodeURIComponent(item.channelId)}/${encodeURIComponent(item.messageId)}" target="_blank" rel="noopener noreferrer">عرض في Discord ↗</a>`}</div>`).join('')}</div>` : empty('لا توجد تغييرات منفذة بعد', 'بعد تأكيد التنفيذ أو النشر ستظهر النتيجة هنا.');
   $('#workspace').innerHTML = head('كل تغيير، وقصته.', 'راجع ما طُبق وما نُشر، ثم الخطط التي لم تنفذها بعد.', '<button class="btn secondary" id="exportActivity">تصدير السجل ↓</button>') + panel(`العمليات المنفذة · ${fmt(completed.length)}`, completedRows) + panel('خطط تنتظر موافقتك', changeRows((state.data.changeSets || []).filter(change => change.status !== 'succeeded'))) + panel('سجل إجراءاتك', state.data.activity.length ? `<div class="rows">${state.data.activity.map(event => `<div class="row"><span class="row-icon">◷</span><div class="row-main"><b>${esc(names[event.action] || 'إجراء على السيرفر')}</b><small>${date(event.created_at)}${event.details?.error ? ` · ${esc(event.details.error)}` : ''}</small></div></div>`).join('')}</div>` : empty('لا توجد إجراءات مسجلة لك بعد', 'ستظهر هنا الإجراءات الجديدة التي تنفذها من لوحة السيرفر.'));
