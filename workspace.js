@@ -367,6 +367,15 @@ const aiSuggestionGroups = [
   ] },
 ];
 const aiPromptLibrary = aiSuggestionGroups.flatMap(group => group.prompts.map(([title, prompt, mode]) => ({ title, prompt, category: group.name, mode: mode || group.mode })));
+const aiLibraryFlow = item => {
+  if (item.mode !== 'execute') return 'اكتب التفاصيل ← اقرأ الناتج وعدّله ← انشره كرسالة فقط إن رغبت وبعد مراجعتك';
+  if (item.category === 'تذاكر الدعم' || (item.category === 'بطاقات وملفات' && item.title.includes('دعم'))) return 'حدد قناة اللوحة ورتبة الدعم ← راجع النص والبنر ← أكد النشر ← العميل يفتح تذكرة خاصة ← الفريق يستلمها ويتابعها';
+  if (item.category === 'الجيف آواي' || item.title.includes('جيف آواي')) return 'حدد الجائزة والمدة والقناة ← راجع البطاقة والبنر ← أكد النشر ← يتفاعل الأعضاء مع زر المشاركة';
+  if (item.title.includes('تحميل') || item.title.includes('دليل قابل')) return 'حدد القناة والنص والملف ← راجع البطاقة ← أكد النشر ← يظهر زر التحميل للأعضاء';
+  if (item.title.includes('استطلاع')) return 'حدد السؤال والخيارات والقناة ← راجع الاستطلاع ← أكد النشر ← يصوت الأعضاء';
+  if (item.category === 'بناء السيرفر' || item.category === 'القنوات' || item.category === 'الرتب') return 'صف ما تريد ← راجع القنوات والرتب الموجودة ← افتح خطة التغييرات ← أكد التطبيق في Discord';
+  return 'حدد القناة والنص والصورة إن وجدت ← راجع المحتوى وموضع الصورة ← أكد النشر في Discord';
+};
 async function assistant() {
   const guild = state.guild, epoch = state.epoch;
   const active = () => guild === state.guild && epoch === state.epoch && screen() === 'assistant';
@@ -383,7 +392,7 @@ async function assistant() {
     $('#aiLibraryCategories').querySelectorAll('[data-ai-category]').forEach(button => button.onclick = () => { libraryCategory = button.dataset.aiCategory; renderLibrary(); });
     const query = $('#aiLibrarySearch').value.trim().toLocaleLowerCase('ar');
     const matched = aiPromptLibrary.map((item, index) => ({ ...item, index })).filter(item => (libraryCategory === 'الكل' || item.category === libraryCategory) && (!query || `${item.title} ${item.category} ${item.prompt}`.toLocaleLowerCase('ar').includes(query)));
-    $('#aiLibraryList').innerHTML = matched.length ? matched.map(item => `<button type="button" class="ai-library-item" data-ai-template="${item.index}"><span>${item.mode === 'execute' ? '⚡ قابل للتنفيذ بعد التأكيد' : '✦ ناتج داخل الدردشة'}</span><b>${esc(item.title)}</b><small>${esc(item.prompt)}</small></button>`).join('') : '<p class="ai-library-empty">لا توجد نتائج. جرّب كلمة أخرى.</p>';
+    $('#aiLibraryList').innerHTML = matched.length ? matched.map(item => `<button type="button" class="ai-library-item" data-ai-template="${item.index}"><span>${item.mode === 'execute' ? '⚡ قابل للتنفيذ بعد التأكيد' : '✦ ناتج داخل الدردشة'}</span><b>${esc(item.title)}</b><small>${esc(item.prompt)}</small><small>المسار: ${esc(aiLibraryFlow(item))}</small></button>`).join('') : '<p class="ai-library-empty">لا توجد نتائج. جرّب كلمة أخرى.</p>';
     $('#aiLibraryList').querySelectorAll('[data-ai-template]').forEach(button => button.onclick = () => {
       selectedTemplate = aiPromptLibrary[Number(button.dataset.aiTemplate)];
       if (selected && messages.length) {
@@ -392,7 +401,7 @@ async function assistant() {
       }
       input.value = selectedTemplate.prompt;
       $('#aiTemplateDraft').hidden = false;
-      $('#aiTemplateDraft').innerHTML = `<div><b>مسودة: ${esc(selectedTemplate.title)}</b><small>${selectedTemplate.mode === 'execute' ? 'ناقش التفاصيل مع AI، ثم اطلب التنفيذ بأي صيغة تناسبك لتظهر بطاقة المراجعة.' : 'هذه مهمة كتابة أو تخطيط؛ سيظهر الناتج في الدردشة دون تغيير السيرفر.'} استبدل ما بين [ ] بتفاصيلك.</small></div><button id="aiClearTemplate" type="button" class="btn small secondary">مسح المسودة</button>`;
+      $('#aiTemplateDraft').innerHTML = `<div><b>مسودة: ${esc(selectedTemplate.title)}</b><small>${esc(aiLibraryFlow(selectedTemplate))}. استبدل ما بين [ ] بتفاصيلك.</small></div><button id="aiClearTemplate" type="button" class="btn small secondary">مسح المسودة</button>`;
       $('#aiClearTemplate').onclick = () => { selectedTemplate = null; input.value = ''; $('#aiTemplateDraft').hidden = true; input.focus(); };
       input.focus(); input.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
     });
@@ -401,7 +410,7 @@ async function assistant() {
   renderLibrary();
   let attachedFile = null;
   let previewUrl = '';
-  const showAttachment = () => { const bar = $('#aiAttachment'); if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = attachedFile?.type.startsWith('image/') ? URL.createObjectURL(attachedFile) : ''; bar.hidden = !attachedFile; bar.innerHTML = attachedFile ? `${previewUrl ? `<img src="${previewUrl}" alt="معاينة الصورة المرفقة">` : '📎'}<span>${esc(attachedFile.name)} · ${previewUrl ? 'ستظهر مع رسالتك ويمكن إرفاقها عند النشر في Discord. المساعد النصي لا يرى تفاصيلها.' : 'سيضاف محتواه إلى سؤالك'}</span><button id="aiRemoveFile" type="button" class="btn small secondary">إزالة</button>` : ''; if (attachedFile) $('#aiRemoveFile').onclick = () => { attachedFile = null; $('#aiFile').value = ''; showAttachment(); }; };
+  const showAttachment = () => { const bar = $('#aiAttachment'); if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = attachedFile?.type.startsWith('image/') ? URL.createObjectURL(attachedFile) : ''; bar.hidden = !attachedFile; bar.innerHTML = attachedFile ? `${previewUrl ? `<img src="${previewUrl}" alt="معاينة الصورة المرفقة">` : '📎'}<span>${esc(attachedFile.name)} · ${previewUrl ? 'ستظهر مع رسالتك ويمكن إرفاقها عند النشر في Discord. تحليل محتواها يتطلب اتصال نموذج الرؤية المحلي.' : 'سيضاف محتواه إلى سؤالك'}</span><button id="aiRemoveFile" type="button" class="btn small secondary">إزالة</button>` : ''; if (attachedFile) $('#aiRemoveFile').onclick = () => { attachedFile = null; $('#aiFile').value = ''; showAttachment(); }; };
   $('#aiAttach').onclick = () => $('#aiFile').click();
   $('#aiFile').onchange = event => { const file = event.target.files[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { toast('الملف أكبر من 10 ميجابايت.'); event.target.value = ''; return; } attachedFile = file; showAttachment(); };
   const renderProposal = item => {
