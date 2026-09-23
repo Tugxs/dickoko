@@ -193,6 +193,17 @@ test('poll, event and welcome open distinct live review cards', async () => {
       doc.querySelector('#aiWelcomeAvatarPosition').value = 'top';
       doc.querySelector('#aiWelcomeAvatarPosition').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
       assert.equal(doc.querySelector('#aiSpecialPreviewCard').dataset.avatarPosition, 'top');
+      dom.window.URL.createObjectURL = () => 'blob:welcome-design';
+      dom.window.URL.revokeObjectURL = () => {};
+      Object.defineProperty(doc.querySelector('#aiSpecialImage'), 'files', { value: [new dom.window.File(['design'], 'design.png', { type: 'image/png' })] });
+      doc.querySelector('#aiWelcomeComposite').checked = true;
+      doc.querySelector('#aiWelcomeComposite').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+      assert.equal(doc.querySelector('#aiWelcomeAvatarPosition').value, 'center');
+      assert.equal(doc.querySelector('#aiWelcomeCompositeControls').hidden, false);
+      assert.equal(doc.querySelector('.ai-welcome-image-composite img').getAttribute('src'), 'blob:welcome-design');
+      doc.querySelector('#aiWelcomeAvatarPosition').value = 'left';
+      doc.querySelector('#aiWelcomeAvatarPosition').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+      assert.match(doc.querySelector('.ai-welcome-image-avatar').getAttribute('style'), /left:15\.416/);
     }
     dom.window.close();
   }
