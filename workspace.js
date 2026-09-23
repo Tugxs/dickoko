@@ -541,11 +541,12 @@ async function assistant() {
   });
   input.onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#assistantForm').requestSubmit(); } };
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition = null, recordingTimer = null, recordingStart = 0;
-  const endRecordingUi = () => { clearInterval(recordingTimer); $('#aiRecording').hidden = true; $('#aiVoice').classList.remove('recording'); };
-  $('#aiStopVoice').onclick = () => recognition?.stop();
+  let recognition = null, recordingTimer = null, recordingStart = 0, recordingRequested = false, restartTimer = null, spokenBase = '', completedSpeech = '', sessionSpeech = '';
+  const endRecordingUi = () => { clearInterval(recordingTimer); recordingTimer = null; $('#aiRecording').hidden = true; $('#aiVoice').classList.remove('recording'); };
+  const stopRecognition = () => { recordingRequested = false; clearTimeout(restartTimer); recognition?.stop(); recognition = null; endRecordingUi(); notice.textContent = 'راجع النص ثم اضغط إرسال.'; input.focus(); };
+  $('#aiStopVoice').onclick = stopRecognition;
   $('#aiVoice').onclick = async () => {
-    if (recognition) { recognition.stop(); return; }
+    if (recordingRequested) { stopRecognition(); return; }
     if (!navigator.mediaDevices?.getUserMedia) { notice.textContent = 'المايك غير متاح هنا. افتح الموقع في Chrome.'; return; }
     try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); }
     catch (error) { notice.textContent = ['NotAllowedError','PermissionDeniedError'].includes(error.name) ? 'المايك محظور. اسمح له من أيقونة الموقع بجانب الرابط.' : error.name === 'NotFoundError' ? 'لا يوجد مايك متصل بالجهاز.' : 'تعذر تشغيل المايك. جرّب Chrome مباشرة.'; return; }
@@ -553,16 +554,17 @@ async function assistant() {
     let devices = []; try { devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput'); } catch {}
     modal('اختيار الميكروفون', `<p class="form-note">يستخدم تحويل الكلام إلى نص ميكروفون المتصفح الافتراضي. إذا عندك أكثر من جهاز، اختر الميكروفون الافتراضي من إعدادات المتصفح أو النظام قبل البدء.</p><div class="ai-device-list">${devices.map(device => `<div>🎙 ${esc(device.label || 'ميكروفون')}</div>`).join('') || '<div>الميكروفون الافتراضي</div>'}</div><p class="form-note">بعد السماح، سيظهر شريط التسجيل والكلام المكتوب قبل أن تضغط إرسال.</p>`, '<button id="aiVoiceCancel" class="btn secondary" type="button">إلغاء</button><button id="aiVoiceStart" class="btn primary" type="button">ابدأ التسجيل</button>');
     $('#aiVoiceCancel').onclick = closeDialog;
-    $('#aiVoiceStart').onclick = () => { closeDialog(); startRecognition(); };
+    $('#aiVoiceStart').onclick = () => { closeDialog(); recordingRequested = true; spokenBase = input.value.trim(); completedSpeech = ''; recordingStart = Date.now(); startRecognition(); };
   };
   const startRecognition = () => {
-    recognition = new Recognition(); recognition.lang = 'ar-SA'; recognition.interimResults = true; recognition.continuous = false;
-    const before = input.value.trim();
-    recognition.onstart = () => { $('#aiVoice').classList.add('recording'); $('#aiRecording').hidden = false; recordingStart = Date.now(); $('#aiRecordingTime').textContent = '00:00'; recordingTimer = setInterval(() => { const seconds = Math.floor((Date.now() - recordingStart) / 1000); $('#aiRecordingTime').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; }, 1000); notice.textContent = 'تكلّم الآن… سيظهر النص قبل الإرسال. قد يستخدم المتصفح خدمته للتعرف على الصوت.'; };
-    recognition.onresult = event => { const spoken = [...event.results].map(result => result[0].transcript).join(' ').trim(); input.value = [before, spoken].filter(Boolean).join(' '); };
-    recognition.onerror = event => { notice.textContent = event.error === 'not-allowed' ? 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مجددًا.' : 'تعذر تحويل الصوت إلى نص. حاول مجددًا أو اكتب رسالتك.'; };
-    recognition.onend = () => { recognition = null; endRecordingUi(); if (notice.textContent.startsWith('تكلّم')) notice.textContent = 'راجع النص ثم اضغط إرسال.'; input.focus(); };
-    try { recognition.start(); } catch { recognition = null; toast('تعذر بدء التسجيل الصوتي.'); }
+    if (!recordingRequested || !active()) return;
+    const current = new Recognition(); recognition = current; sessionSpeech = '';
+    current.lang = 'ar-SA'; current.interimResults = true; current.continuous = true;
+    current.onstart = () => { $('#aiVoice').classList.add('recording'); $('#aiRecording').hidden = false; if (!recordingTimer) recordingTimer = setInterval(() => { const seconds = Math.floor((Date.now() - recordingStart) / 1000); $('#aiRecordingTime').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; }, 1000); notice.textContent = 'تكلّم الآن… سيظهر النص قبل الإرسال. اضغط إيقاف التسجيل عند الانتهاء.'; };
+    current.onresult = event => { sessionSpeech = [...event.results].map(result => result[0].transcript).join(' ').trim(); input.value = [spokenBase, completedSpeech, sessionSpeech].filter(Boolean).join(' '); };
+    current.onerror = event => { if (['not-allowed','service-not-allowed','audio-capture'].includes(event.error)) { recordingRequested = false; notice.textContent = event.error === 'audio-capture' ? 'تعذر الوصول إلى الميكروفون.' : 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مجددًا.'; } };
+    current.onend = () => { if (recognition !== current) return; recognition = null; completedSpeech = [completedSpeech, sessionSpeech].filter(Boolean).join(' '); sessionSpeech = ''; if (recordingRequested && active()) restartTimer = setTimeout(startRecognition, 300); else { endRecordingUi(); if (notice.textContent.startsWith('تكلّم')) notice.textContent = 'راجع النص ثم اضغط إرسال.'; input.focus(); } };
+    try { current.start(); } catch { recordingRequested = false; recognition = null; endRecordingUi(); toast('تعذر بدء التسجيل الصوتي.'); }
   };
   try {
     const status = await api('/api/ai/status'); if (!active()) return;

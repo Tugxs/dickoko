@@ -25,7 +25,7 @@ test('download button fetches a fresh signed URL from its Discord message', asyn
   const app = { get: (path, handler) => routes.set(path, handler), post: () => {} };
   const pool = { query: async () => ({ rows: [{ storage_channel_id: 'storage', storage_message_id: 'message', attachment_id: 'attachment' }] }) };
   const calls = [];
-  mountDownloadCards(app, { pool, requireUser: () => {}, requireWriteAccess: () => {}, authorizedGuild: () => {}, baseUrl: 'https://diskoko.com', discordBotFetch: async path => { calls.push(path); return { ok: true, data: { attachments: [{ id: 'attachment', url: 'https://cdn.discordapp.com/attachments/123/file.pdf?ex=new-signature' }] } }; } });
+  mountDownloadCards(app, { pool, requireUser: () => {}, requireWriteAccess: () => {}, authorizedGuild: () => {}, requirePlanCapacity: async () => {}, baseUrl: 'https://diskoko.com', discordBotFetch: async path => { calls.push(path); return { ok: true, data: { attachments: [{ id: 'attachment', url: 'https://cdn.discordapp.com/attachments/123/file.pdf?ex=new-signature' }] } }; } });
   const res = { statusCode: 200, set() { return this; }, redirect(code, url) { this.statusCode = code; this.url = url; return this; }, status(code) { this.statusCode = code; return this; }, end() { return this; } };
   await routes.get('/api/downloads/:id')({ params: { id: '550e8400-e29b-41d4-a716-446655440000' } }, res, error => { throw error; });
   assert.deepEqual(calls, ['/channels/storage/messages/message']);

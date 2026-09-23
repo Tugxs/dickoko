@@ -433,7 +433,7 @@ async function planCapacity(user, kind, db = pool) {
     return { used: rows[0].count, limit: limits.scheduledMessages };
   }
   if (kind === "changeSetsPerMonth") {
-    const { rows } = await db.query("SELECT COUNT(*)::int AS count FROM change_sets WHERE user_id=$1 AND created_at >= date_trunc('month', NOW())", [user.id]);
+    const { rows } = await db.query("SELECT ((SELECT COUNT(*) FROM change_sets WHERE user_id=$1 AND status='succeeded' AND updated_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ai_requests WHERE user_id=$1 AND (sent_message_id IS NOT NULL OR interactive_message_id IS NOT NULL) AND published_at >= date_trunc('month', NOW())))::int AS count", [user.id]);
     return { used: rows[0].count, limit: limits.changeSetsPerMonth };
   }
   return { used: 0, limit: 0 };
@@ -828,9 +828,9 @@ app.post("/api/projects/:id/bind-guild", requireUser, requireWriteAccess, async 
   } catch (e) { next(e); }
 });
 mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: getDiscordBotStatus });
-mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch });
-mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch });
-mountDownloadCards(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, baseUrl: BASE_URL });
+mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch, requirePlanCapacity });
+mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity });
+mountDownloadCards(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, baseUrl: BASE_URL, requirePlanCapacity });
 app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,archived_at,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY archived_at NULLS FIRST,updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
 app.patch("/api/projects/:id", requireUser, requireWriteAccess, async (req, res, next) => { try { const name = String(req.body.name || '').trim().slice(0, 80); if (name.length < 2) return res.status(400).json({ error: 'اكتب اسمًا من حرفين على الأقل.' }); const { rows } = await pool.query("UPDATE projects SET name=$1,updated_at=NOW() WHERE id=$2 AND user_id=$3 RETURNING id,name,guild_id,deployment_status,archived_at,created_at,updated_at", [name, req.params.id, req.user.id]); if (!rows[0]) return res.status(404).json({ error: 'المشروع غير موجود.' }); await audit(req.user.id, 'project.rename', 'project', rows[0].id, { name }); res.json({ project: rows[0] }); } catch (e) { next(e); } });

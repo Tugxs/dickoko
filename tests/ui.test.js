@@ -4,15 +4,40 @@ import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { fixtureResponse, guild, workspace } from './fixtures.js';
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 5)); };
-async function page(hash = 'overview', response = fixtureResponse, file = 'studio.html', script = 'workspace.js') {
+async function page(hash = 'overview', response = fixtureResponse, file = 'studio.html', script = 'workspace.js', setup = () => {}) {
   const dom = new JSDOM(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), { url: `https://diskoko.test/studio?guild=${guild.id}#${hash}`, runScripts: 'outside-only', pretendToBeVisual: true });
   const requests = [];
   dom.window.fetch = async (url, options = {}) => { requests.push({ url, options }); const body = response(url); return { ok: !body?.error, status: body?.error ? 502 : 200, json: async () => structuredClone(body) }; };
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
+  setup(dom.window);
   dom.window.eval(fs.readFileSync(new URL(`../${script}`, import.meta.url), 'utf8')); await settle();
   return { dom, requests, doc: dom.window.document };
 }
+test('voice recognition resumes after a browser pause and stops only when the user asks', async () => {
+  const sessions = [];
+  class Recognition {
+    start() { sessions.push(this); this.onstart?.(); }
+    stop() { this.onend?.(); }
+  }
+  const { dom, doc } = await page('assistant', fixtureResponse, 'studio.html', 'workspace.js', window => {
+    window.SpeechRecognition = Recognition;
+    Object.defineProperty(window.navigator, 'mediaDevices', { value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }), enumerateDevices: async () => [] } });
+  });
+  doc.querySelector('#aiVoice').click(); await settle();
+  doc.querySelector('#aiVoiceStart').click();
+  assert.equal(sessions.length, 1); assert.equal(sessions[0].continuous, true);
+  sessions[0].onresult({ results: [[{ transcript: 'مرحبا' }]] });
+  sessions[0].onend();
+  await new Promise(resolve => setTimeout(resolve, 350));
+  assert.equal(sessions.length, 2); assert.equal(doc.querySelector('#aiRecording').hidden, false);
+  sessions[1].onresult({ results: [[{ transcript: 'يا جماعة' }]] });
+  assert.match(doc.querySelector('#assistantPrompt').value, /مرحبا يا جماعة/);
+  doc.querySelector('#aiStopVoice').click();
+  await new Promise(resolve => setTimeout(resolve, 350));
+  assert.equal(sessions.length, 2); assert.equal(doc.querySelector('#aiRecording').hidden, true);
+  dom.window.close();
+});
 test('deep link opens the requested guild with true live data and one navigation controller', async () => {
   const { dom, doc, requests } = await page('builder');
   assert.match(doc.querySelector('h1').textContent, /مساحة مرتبة/); assert.match(doc.body.textContent, /الدردشة/);
