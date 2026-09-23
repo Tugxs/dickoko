@@ -71,6 +71,23 @@ test('change history counts applied structure and published giveaway as two comp
   assert.match(doc.body.textContent, /تغييرات AI ديسكوكو/);
   dom.window.close();
 });
+test('community ideas are selectable for follow-up without a publish-the-list button', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: 'أفكار نشاط', updated_at: '2026-09-23T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: 'اقترح 10 أفكار لتنشيط الأعضاء', answer: '1. تحدي صورة الأسبوع\n2. استطلاع نشاط الأسبوع', status: 'completed', proposal: null, can_publish_answer: false, can_select_step: true }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc } = await page('assistant', response);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  assert.equal(doc.querySelectorAll('[data-ai-choice]').length, 2);
+  assert.equal(doc.querySelector('[data-ai-publish-answer]'), null);
+  doc.querySelector('[data-ai-choice]').click();
+  assert.match(doc.querySelector('#assistantPrompt').value, /تحدي صورة الأسبوع/);
+  assert.match(doc.querySelector('#assistantPrompt').value, /لا تنشر شرح الفكرة نفسه/);
+  dom.window.close();
+});
 test('AI chat exposes reviewed Discord actions, image attachment and voice transcription control', async () => {
   const conversationId = '11111111-1111-4111-8111-111111111111';
   const response = url => {

@@ -1,6 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alignAiProposalWithIntent, unsupportedAutomationRequest } from '../lib/ai-intent.js';
+import { alignAiProposalWithIntent, unsupportedAutomationRequest, workflowBlueprintRequest, ideaSelectionRequest } from '../lib/ai-intent.js';
+
+test('a member journey blueprint cannot turn into a single publishable message', () => {
+  const request = 'صمم رحلة بسيطة للعضو الجديد من لحظة دخوله حتى أول مشاركة مفيدة';
+  assert.equal(workflowBlueprintRequest(request), true);
+  const result = alignAiProposalWithIntent({ executeNow: true, operations: [{ resource_type: 'channel', name: 'ابدأ هنا' }], message: { channel: 'العام', content: 'خطوات الرحلة كاملة' } }, [{ role: 'user', content: request }]);
+  assert.equal(result.executeNow, false);
+  assert.deepEqual(result.operations, []);
+  assert.equal(result.message, null);
+  assert.equal(workflowBlueprintRequest('صمم لوحة دعم العملاء مع زر فتح تذكرة'), false);
+  assert.equal(workflowBlueprintRequest('اكتب رسالة ترحيب وانشرها'), false);
+});
+
+test('multiple community ideas stay choices until the customer selects one', () => {
+  const prompt = 'اقترح 10 أفكار عملية لتنشيط أعضاء السيرفر';
+  assert.equal(ideaSelectionRequest(prompt), true);
+  const result = alignAiProposalWithIntent({ executeNow: true, message: { channel: 'العام', content: 'عشر أفكار' } }, [{ role: 'user', content: prompt }]);
+  assert.equal(result.executeNow, false);
+  assert.equal(result.message, null);
+});
 
 test('a request to build an unsupported bot or game never becomes another executable task', () => {
   assert.equal(unsupportedAutomationRequest([{ role: 'user', content: 'سوي لي بوت موسيقى' }, { role: 'user', content: 'نعم' }]), true);
