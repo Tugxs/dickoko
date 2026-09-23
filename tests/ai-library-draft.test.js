@@ -38,7 +38,10 @@ test('untouched library templates open editable task-specific drafts', () => {
 });
 
 test('message and structure templates create review cards rather than publishing brackets', () => {
-  assert.deepEqual(libraryDraftProposal({ mode: 'execute', category: 'الرسائل', title: 'إعلان مع صورة', prompt: 'اكتب رسالة عن [الموضوع] في #[القناة]' }).message, { channel: '', content: '' });
+  const message = libraryDraftProposal({ mode: 'execute', category: 'الرسائل', title: 'إعلان مع صورة', prompt: 'اكتب رسالة عن [الموضوع] في #[القناة]' }).message;
+  assert.equal(message.channel, '');
+  assert.match(message.content, /إعلان لمجتمعنا/);
+  assert.doesNotMatch(message.content, /\[[^\]]+\]/);
   assert.equal(libraryDraftProposal({ mode: 'execute', category: 'القنوات', title: 'قناة صوتية', prompt: 'جهز قناة صوتية باسم [الاسم]' }).structure.kind, 'structure');
   assert.equal(incompleteLibraryValue('[العنوان]'), true);
   assert.equal(incompleteLibraryValue('خدمة العملاء'), false);
@@ -50,7 +53,19 @@ test('every executable library template has a typed review path when sent unchan
   const end = source.indexOf('const aiPromptLibrary', start);
   const groups = vm.runInNewContext(`${source.slice(start, end).replace('const aiSuggestionGroups', 'var aiSuggestionGroups')}; aiSuggestionGroups`);
   const executable = groups.flatMap(group => group.prompts.filter(item => (item[2] || group.mode) === 'execute').map(([title, prompt]) => ({ mode: 'execute', category: group.name, title, prompt })));
-  assert.ok(executable.length >= 25);
-  for (const task of executable) assert.ok(libraryDraftProposal(task), `Missing review path: ${task.category} / ${task.title}`);
+  assert.equal(executable.length, 29);
+  for (const task of executable) {
+    const draft = libraryDraftProposal(task);
+    assert.ok(draft, `Missing review path: ${task.category} / ${task.title}`);
+    const kind = /جيف آواي/.test(task.category) || /جيف آواي/.test(task.title) ? 'giveaway'
+      : /تذاكر الدعم/.test(task.category) || /لوحة دعم/.test(task.title) ? 'tickets'
+      : /استطلاع/.test(task.title) ? 'poll'
+      : /تحميل|دليل قابل/.test(task.title) ? 'download' : '';
+    if (kind) assert.equal(draft.interactive?.kind, kind, `${task.title} must open its own action card`);
+    else if (task.category === 'الرسائل') assert.ok(draft.message, `${task.title} must open a message editor`);
+    else assert.equal(draft.structure?.kind, 'structure', `${task.title} must open a structure review`);
+    assert.equal(draft.draft, true);
+    if (draft.message) { assert.ok(draft.message.content.trim()); assert.doesNotMatch(draft.message.content, /\[[^\]]+\]/); }
+  }
 });
 

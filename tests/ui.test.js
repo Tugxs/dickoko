@@ -144,6 +144,30 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   assert.match(doc.querySelector('#aiNotice').textContent, /مسودة جديدة/);
   dom.window.close();
 });
+test('private staff template keeps category placement and role-only access in its review plan', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: 'فريق خاص', updated_at: '2026-09-23T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: 'قسم فريق خاص', answer: 'جهزت البطاقة.', status: 'completed', library_title: 'قسم فريق خاص', proposal: { operations: [], structure: { kind: 'structure', title: 'قسم فريق خاص' } } }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc, requests } = await page('assistant', response);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  doc.querySelector('[data-ai-structure]').click();
+  assert.match(doc.querySelector('#aiStructureLines').value, /تصنيف: الفريق\nقناة: غرفة-الفريق/);
+  doc.querySelector('#aiStructureReview').click(); await settle();
+  assert.equal(requests.filter(entry => entry.url === '/api/change-sets').length, 0);
+  doc.querySelector('#aiStructureStaffRole').value = 'r1';
+  doc.querySelector('#aiStructureReview').click(); await settle();
+  const submitted = requests.find(entry => entry.url === '/api/change-sets');
+  assert.ok(submitted);
+  const operations = JSON.parse(submitted.options.body).operations;
+  assert.equal(operations[1].parent_name, 'الفريق');
+  assert.equal(operations[1].access, 'staff_only');
+  assert.equal(operations[1].staff_role_id, 'r1');
+  dom.window.close();
+});
 test('AI structure review applies from one final confirmation and links its request', async () => {
   const conversationId = '11111111-1111-4111-8111-111111111111';
   const requestId = '22222222-2222-4222-8222-222222222222';

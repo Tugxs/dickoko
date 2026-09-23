@@ -282,7 +282,7 @@ app.use((req, res, next) => {
 const standardJson = express.json({ limit: "512kb", verify: (req, _res, buffer) => { if (req.path === "/api/webhooks/billing") req.rawBody = Buffer.from(buffer); } });
 const downloadJson = express.json({ limit: "8mb" });
 const interactiveMediaJson = express.json({ limit: "29mb" });
-app.use((req, res, next) => req.method === 'POST' && /^\/api\/ai\/requests\/[^/]+\/launch-interactive$/.test(req.path) ? interactiveMediaJson(req, res, next) : req.method === 'POST' && /^\/api\/ai\/requests\/[^/]+\/launch-download$/.test(req.path) ? downloadJson(req, res, next) : standardJson(req, res, next));
+app.use((req, res, next) => req.method === 'POST' && /^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message)$/.test(req.path) ? interactiveMediaJson(req, res, next) : req.method === 'POST' && /^\/api\/ai\/requests\/[^/]+\/launch-download$/.test(req.path) ? downloadJson(req, res, next) : standardJson(req, res, next));
 app.use("/api", (req, res, next) => {
   if (["POST", "PUT", "PATCH"].includes(req.method) && req.is("application/json") && (!req.body || typeof req.body !== "object" || Array.isArray(req.body))) return res.status(400).json({ error: "يجب أن تكون بيانات الطلب JSON object صالحًا" });
   next();
