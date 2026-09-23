@@ -44,7 +44,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
   assert.ok(doc.querySelector('[data-ai-delete]'));
-  assert.equal(doc.querySelectorAll('.ai-library-item').length, 100);
+  assert.equal(doc.querySelectorAll('.ai-library-item').length, 108);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.ok(doc.querySelector('[data-ai-plan]'));
   doc.querySelector('[data-ai-message]').click();
@@ -166,5 +166,4 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
-
 
