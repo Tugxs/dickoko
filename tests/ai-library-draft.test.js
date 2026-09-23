@@ -45,6 +45,7 @@ test('message and structure templates create review cards rather than publishing
   assert.equal(libraryDraftProposal({ mode: 'execute', category: 'القنوات', title: 'قناة صوتية', prompt: 'جهز قناة صوتية باسم [الاسم]' }).structure.kind, 'structure');
   assert.equal(incompleteLibraryValue('[العنوان]'), true);
   assert.equal(incompleteLibraryValue('خدمة العملاء'), false);
+  assert.equal(incompleteLibraryValue('اقرأ [الدليل](https://example.com/guide)'), false);
 });
 
 test('every executable library template has a typed review path when sent unchanged', () => {
