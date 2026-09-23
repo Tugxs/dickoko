@@ -40,4 +40,3 @@ if (-not $workerPid -or -not (Get-Process -Id ([int]$workerPid) -ErrorAction Sil
 }
 Write-Output 'AI Diskoko local model and worker started.'
 
-

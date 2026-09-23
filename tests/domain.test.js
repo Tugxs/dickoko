@@ -68,4 +68,3 @@ test('invalid schedule time, size and timezone are rejected', () => {
   assert.throws(() => normalizeSchedule({ ...valid, timezone: 'bad-zone' }, 0));
   assert.throws(() => normalizeSchedule({ ...valid, run_at: 'invalid' }, 0));
 });
-

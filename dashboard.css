@@ -36,3 +36,7 @@
 .admin-pager{display:flex;align-items:center;justify-content:center;gap:12px;padding:18px 4px 0;color:var(--muted);font-size:11px}.admin-pager button:disabled{opacity:.45;cursor:not-allowed}
 .report-details{white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto;line-height:1.9;padding:14px;border:1px solid var(--line);border-radius:10px;background:#0c0f17;font-size:12px}
 .shell :where(a,button,input,select,textarea):focus-visible{outline:2px solid #cbbcff;outline-offset:3px}
+/* Keep the admin surface in the same visual family as the customer workspace. */
+:root{--purple:#aa8cff;--purple2:#c5adff}
+@media (prefers-reduced-motion:no-preference){.card,.panel,.btn,.admin-nav button{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease,background-color .18s ease}.card:hover{transform:translateY(-2px);border-color:#aa8cff88;box-shadow:0 22px 55px #0005}.btn:hover:not(:disabled){transform:translateY(-1px)}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}

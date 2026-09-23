@@ -14,6 +14,7 @@ import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from "./l
 import { migrateLocalAi, mountLocalAi, workerAuthorized } from "./lib/local-ai.js";
 import { migrateInteractiveSystems, mountInteractiveSystems, startGiveawayRunner } from "./lib/interactive-systems.js";
 import { migrateDownloadCards, mountDownloadCards } from "./lib/download-cards.js";
+import { isPublicStaticPath } from "./lib/public-files.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 
 const { Pool } = pg;
@@ -944,15 +945,24 @@ app.post('/api/reports', requireUser, rateLimit(5, 60_000), async (req,res,next)
   await audit(req.user.id,'report.create','report',rows[0].id,{category});res.status(201).json({report:rows[0]});
 }catch(e){next(e);}});
 app.use((req, res, next) => {
-  if (["/", "/index.html", "/app.js", "/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/admin", "/admin-login", "/admin.html", "/admin-console.20260921.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  if (["/", "/index.html", "/app.js", "/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/workspace.css", "/checkout.html", "/checkout.js", "/admin", "/admin-login", "/admin.html", "/admin-console.20260921.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
   next();
 });
 app.get("/admin.html", (_req, res) => res.redirect(301, "/admin"));
 app.get("/admin-console.html", (_req, res) => res.redirect(301, "/admin"));
+for (const [oldPath, destination] of Object.entries({
+  '/api.html': '/knowledge.html',
+  '/billing.html': '/account.html#subscription',
+  '/compare.html': '/plans.html',
+  '/partners.html': '/contact.html',
+  '/sales.html': '/contact.html',
+})) app.get(oldPath, (_req, res) => res.redirect(301, destination));
 app.get("/admin-login", async (req, res, next) => { try { const user = await currentUser(req); if (user && isAdmin(user)) return res.redirect("/admin"); res.sendFile(path.join(__dirname, "admin-login.html")); } catch (error) { next(error); } });
 app.get("/admin", async (req, res, next) => { try { const user = await currentUser(req); if (!user) return res.redirect("/admin-login"); if (!isAdmin(user)) return res.redirect("/account.html"); res.sendFile(path.join(__dirname, "admin-console.html")); } catch (error) { next(error); } });
+app.get('/admin-console.20260921.js', requireAdmin, (_req, res) => res.sendFile(path.join(__dirname, 'admin-console.20260921.js')));
 app.get("/studio", (req, res, next) => { if (!req.query.guild) return res.redirect(302, "/account.html#servers"); next(); });
-app.use(express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" }));
+const publicStatic = express.static(__dirname, { extensions: ["html"], maxAge: IS_PRODUCTION ? "1h" : 0, dotfiles: "deny" });
+app.use((req, res, next) => isPublicStaticPath(req.path) ? publicStatic(req, res, next) : next());
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));

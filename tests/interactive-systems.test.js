@@ -59,4 +59,3 @@ test('giveaway announcement retry keeps the same winner and edits the original m
   assert.equal(edits[0].body.content, edits[1].body.content);
   assert.ok(giveaway.announced_at);
 });
-

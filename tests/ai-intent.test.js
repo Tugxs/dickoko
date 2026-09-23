@@ -20,4 +20,3 @@ test('explicit text-only requests stay text and missing channels can be proposed
   assert.equal(missing.message, null);
   assert.equal(missing.interactive.channel, 'missing');
 });
-
