@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
-import { handleInteractiveButton } from './lib/interactive-systems.js';
+import { claimSupportTicket, handleInteractiveButton, repairLegacyTicketControls } from './lib/interactive-systems.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -18,7 +18,8 @@ let state = {
 
 const COMMANDS = [
   BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك'))
-    .addSubcommand(command => command.setName('ai').setDescription('اسأل AI ديسكوكو عن تنظيم سيرفرك').addStringOption(option => option.setName('prompt').setDescription('ما الذي تريد تنظيمه؟').setRequired(true).setMaxLength(1000))),
+    .addSubcommand(command => command.setName('ai').setDescription('اسأل AI ديسكوكو عن تنظيم سيرفرك').addStringOption(option => option.setName('prompt').setDescription('ما الذي تريد تنظيمه؟').setRequired(true).setMaxLength(1000)))
+    .addSubcommand(command => command.setName('claim').setDescription('استلام تذكرة الدعم الحالية — لفريق الدعم فقط')),
 ];
 const COMMAND_JSON = COMMANDS.map((command) => command.toJSON());
 const DEFAULT_SETTINGS = { enabled: true, command_keys: [...DEFAULT_BOT_COMMAND_KEYS], log_channel_id: null, locale: "ar", welcome_enabled: false };
@@ -134,6 +135,8 @@ export async function startDiscordBot({ pool } = {}) {
       status: "online",
     });
 
+    if (databasePool) void repairLegacyTicketControls(readyClient, databasePool).catch(error => console.error('Ticket controls repair failed', error.message));
+
     const rest = new REST({ version: "10" }).setToken(token);
     for (const guild of readyClient.guilds.cache.values()) {
       if (await registerGuildCommands(rest, readyClient.user.id, guild.id, token)) state.commands.registered += COMMAND_JSON.length;
@@ -165,6 +168,12 @@ export async function startDiscordBot({ pool } = {}) {
     if (!interaction.isChatInputCommand() || interaction.commandName !== "diskoko") return;
     const subcommand = interaction.options.getSubcommand();
     const settings = await guildSettings(interaction.guildId);
+    if (subcommand === 'claim') {
+      if (!settings.enabled) return interaction.reply({ content: 'البوت غير مفعّل لهذا السيرفر.', ephemeral: true });
+      try { await interaction.deferReply({ ephemeral: true }); await claimSupportTicket(interaction, databasePool); }
+      catch (error) { console.error('Ticket claim command failed', error); if (interaction.deferred || interaction.replied) await interaction.editReply('تعذر استلام التذكرة الآن. حاول مجددًا.').catch(() => {}); }
+      return;
+    }
     if (subcommand === 'ai') {
       if (!settings.enabled) return interaction.reply({ content: 'البوت غير مفعّل لهذا السيرفر.', ephemeral: true });
       try { await answerAiInteraction(interaction); void recordCommand(interaction.guildId, 'ai', true); }

@@ -1,6 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discordMessageOptions, processDueGiveaways, resolvePublicationChannel } from '../lib/interactive-systems.js';
+import { claimSupportTicket, discordMessageOptions, processDueGiveaways, repairLegacyTicketControls, resolvePublicationChannel } from '../lib/interactive-systems.js';
+
+test('only support role or server manager can claim a ticket', async () => {
+  const replies = [];
+  let claims = 0;
+  const pool = { async query(sql) {
+    if (sql.startsWith('SELECT t.id')) return { rows: [{ id: 'ticket', panel_id: 'panel', status: 'open', claimed_by: null, staff_role_id: 'support' }] };
+    if (sql.startsWith('UPDATE diskoko_tickets SET claimed_by')) { claims++; return { rowCount: 1 }; }
+    throw Error(sql);
+  } };
+  const interaction = { guildId: 'guild', channelId: 'ticket-channel', user: { id: 'customer' }, member: { roles: { cache: new Map() } }, memberPermissions: { has: () => false }, editReply: async text => replies.push(text), channel: { send: async () => {} } };
+  await claimSupportTicket(interaction, pool);
+  assert.equal(claims, 0);
+  assert.match(replies[0], /فريق الدعم/);
+  interaction.user.id = 'agent'; interaction.member.roles.cache.set('support', {});
+  await claimSupportTicket(interaction, pool);
+  assert.equal(claims, 1);
+});
+
+test('old ticket messages lose the visible claim button', async () => {
+  const edits = [];
+  const message = { author: { id: 'bot' }, components: [{ components: [{ customId: 'diskoko:claim:panel' }, { customId: 'diskoko:close:panel' }] }], edit: async payload => edits.push(payload) };
+  const bot = { user: { id: 'bot' }, channels: { fetch: async () => ({ messages: { fetch: async () => new Map([['intro', message]]) } }) } };
+  const pool = { query: async () => ({ rows: [{ panel_id: 'panel', channel_id: 'ticket-channel' }] }) };
+  await repairLegacyTicketControls(bot, pool);
+  assert.equal(edits.length, 1);
+  assert.equal(edits[0].components[0].components[0].custom_id, 'diskoko:close:panel');
+});
 
 test('support panel reuses an existing channel and creates a missing one only after confirmation', async () => {
   const calls = [];
