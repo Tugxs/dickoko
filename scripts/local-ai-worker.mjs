@@ -32,7 +32,7 @@ function similarity(left, right) {
 
 async function generate(messages, maxTokens = 700, temperature = 0.35) {
   const body = provider === 'ollama'
-    ? await request(`${inference}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, think: false, messages, options: { num_ctx: 4096, num_predict: maxTokens, temperature } }) })
+    ? await request(`${inference}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, think: false, messages, options: { num_ctx: 8192, num_predict: maxTokens, temperature } }) })
     : await request(`${inference}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages, max_tokens: maxTokens, temperature }) });
   return String(provider === 'ollama' ? body.message?.content || '' : body.choices?.[0]?.message?.content || '').trim();
 }

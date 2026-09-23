@@ -20,7 +20,7 @@ $env:LOCAL_AI_URL = 'http://127.0.0.1:11434'
 $env:DISKOKO_URL = $SiteUrl
 
 if (-not (Test-NetConnection 127.0.0.1 -Port 11434 -InformationLevel Quiet)) {
-  Start-Process -FilePath $server -WorkingDirectory (Split-Path $server) -ArgumentList @('-m', "`"$model`"", '-ngl', '99', '--host', '127.0.0.1', '--port', '11434', '-c', '4096', '-np', '1', '--jinja') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $RuntimeDirectory 'model.out.log') -RedirectStandardError (Join-Path $RuntimeDirectory 'model.err.log')
+  Start-Process -FilePath $server -WorkingDirectory (Split-Path $server) -ArgumentList @('-m', "`"$model`"", '-ngl', '99', '--host', '127.0.0.1', '--port', '11434', '-c', '8192', '-np', '1', '--jinja') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $RuntimeDirectory 'model.out.log') -RedirectStandardError (Join-Path $RuntimeDirectory 'model.err.log')
 }
 
 for ($attempt = 0; $attempt -lt 90; $attempt++) {
@@ -39,4 +39,5 @@ if (-not $workerPid -or -not (Get-Process -Id ([int]$workerPid) -ErrorAction Sil
   Set-Content -LiteralPath $pidFile -Value $process.Id -Encoding ascii
 }
 Write-Output 'AI Diskoko local model and worker started.'
+
 
