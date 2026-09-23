@@ -88,6 +88,23 @@ test('community ideas are selectable for follow-up without a publish-the-list bu
   assert.match(doc.querySelector('#assistantPrompt').value, /لا تنشر شرح الفكرة نفسه/);
   dom.window.close();
 });
+test('an untouched library prompt with brackets can be submitted for an editable review card', async () => {
+  const response = url => url === '/api/ai/status' ? { available: true, planEnabled: true }
+    : url.startsWith('/api/ai/conversations?') ? { conversations: [] }
+      : url === '/api/ai/requests' ? { id: '22222222-2222-4222-8222-222222222222', conversationId: '11111111-1111-4111-8111-111111111111' }
+        : fixtureResponse(url);
+  const { dom, doc, requests } = await page('assistant', response);
+  doc.querySelector('[data-ai-template="0"]').click();
+  doc.querySelector('#assistantForm').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+  await settle();
+  const submitted = requests.find(entry => entry.url === '/api/ai/requests');
+  assert.ok(submitted);
+  const body = JSON.parse(submitted.options.body);
+  assert.match(body.prompt, /\[القناة\]/);
+  assert.equal(body.libraryTitle, 'جيف آواي سريع');
+  assert.equal(body.libraryCategory, 'الجيف آواي');
+  dom.window.close();
+});
 test('AI chat exposes reviewed Discord actions, image attachment and voice transcription control', async () => {
   const conversationId = '11111111-1111-4111-8111-111111111111';
   const response = url => {
