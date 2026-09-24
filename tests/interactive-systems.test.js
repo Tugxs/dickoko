@@ -190,8 +190,8 @@ test('giveaway announcement retry keeps the same winner and edits the original m
   const pool = {
     async query(sql, values) {
       if (sql.startsWith('SELECT id FROM diskoko_giveaways')) return { rows: giveaway.announced_at || giveaway.next_retry_at > new Date() ? [] : [{ id: giveaway.id }] };
-      if (sql.startsWith('UPDATE diskoko_giveaways SET next_retry_at')) { giveaway.next_retry_at = new Date(Date.now() + values[1] * 1000); return { rowCount: 1 }; }
-      if (sql.startsWith('UPDATE diskoko_giveaways SET announced_at')) { giveaway.announced_at = new Date(); giveaway.next_retry_at = null; return { rowCount: 1 }; }
+      if (sql.startsWith('UPDATE diskoko_giveaways SET status=CASE')) { giveaway.failure_count = values[2]; giveaway.status = values[1] ? 'paused' : giveaway.status; giveaway.next_retry_at = values[1] ? null : new Date(Date.now() + values[4] * 1000); return { rowCount: 1 }; }
+      if (sql.startsWith('UPDATE diskoko_giveaways SET announced_at')) { giveaway.announced_at = new Date(); giveaway.next_retry_at = null; giveaway.failure_count = 0; return { rowCount: 1 }; }
       throw new Error(`Unexpected pool query: ${sql}`);
     },
     async connect() { return {
@@ -220,4 +220,41 @@ test('giveaway announcement retry keeps the same winner and edits the original m
   assert.equal(edits[0].path, edits[1].path);
   assert.equal(edits[0].body.content, edits[1].body.content);
   assert.ok(giveaway.announced_at);
+});
+
+test('missing giveaway message pauses permanently and never retries', async () => {
+  const giveaway = { id: 'missing', guild_id: 'guild', channel_id: 'channel', message_id: 'deleted', prize: 'هدية', winner_count: 1, status: 'ended', winners: ['winner'], failure_count: 0 };
+  let calls = 0;
+  const pool = {
+    query: async (sql, values) => {
+      if (sql.startsWith('SELECT id FROM diskoko_giveaways')) return { rows: giveaway.status === 'paused' ? [] : [{ id: giveaway.id }] };
+      if (sql.startsWith('UPDATE diskoko_giveaways SET status=CASE')) { giveaway.status = values[1] ? 'paused' : 'ended'; giveaway.failure_count = values[2]; return { rowCount: 1 }; }
+      throw Error(sql);
+    },
+    connect: async () => ({ query: async sql => sql.startsWith('SELECT * FROM') ? { rows: [giveaway] } : { rows: [] }, release() {} }),
+  };
+  const discordBotFetch = async () => { calls++; return { ok: false, status: 404 }; };
+  await processDueGiveaways({ pool, discordBotFetch });
+  await processDueGiveaways({ pool, discordBotFetch });
+  assert.equal(calls, 1);
+  assert.equal(giveaway.status, 'paused');
+  assert.equal(giveaway.failure_count, 1);
+});
+
+test('giveaway retries stop after five consecutive temporary failures', async () => {
+  const giveaway = { id: 'temporary', guild_id: 'guild', channel_id: 'channel', message_id: 'message', prize: 'هدية', winner_count: 1, status: 'ended', winners: [], failure_count: 0 };
+  let calls = 0;
+  const pool = {
+    query: async (sql, values) => {
+      if (sql.startsWith('SELECT id FROM diskoko_giveaways')) return { rows: giveaway.status === 'paused' ? [] : [{ id: giveaway.id }] };
+      if (sql.startsWith('UPDATE diskoko_giveaways SET status=CASE')) { giveaway.status = values[1] ? 'paused' : 'ended'; giveaway.failure_count = values[2]; return { rowCount: 1 }; }
+      throw Error(sql);
+    },
+    connect: async () => ({ query: async sql => sql.startsWith('SELECT * FROM') ? { rows: [giveaway] } : { rows: [] }, release() {} }),
+  };
+  const discordBotFetch = async () => { calls++; return { ok: false, status: 503 }; };
+  for (let attempt = 0; attempt < 6; attempt++) await processDueGiveaways({ pool, discordBotFetch });
+  assert.equal(calls, 5);
+  assert.equal(giveaway.status, 'paused');
+  assert.equal(giveaway.failure_count, 5);
 });

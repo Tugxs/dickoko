@@ -43,7 +43,19 @@ test('voice recognition resumes after a browser pause and stops only when the us
 test('deep link opens the requested guild with true live data and one navigation controller', async () => {
   const { dom, doc, requests } = await page('builder');
   assert.match(doc.querySelector('h1').textContent, /مساحة مرتبة/); assert.match(doc.body.textContent, /الدردشة/);
-  assert.equal(doc.querySelectorAll('.nav-link').length, 10); assert.equal(requests.filter(r => r.url === '/api/account/overview').length, 1); dom.window.close();
+  assert.equal(doc.querySelectorAll('.nav-link').length, 11); assert.equal(requests.filter(r => r.url === '/api/account/overview').length, 1); dom.window.close();
+});
+test('community alerts show actionable paused giveaways and failed schedules', async () => {
+  const response = url => url === `/api/workspace/${guild.id}` ? { ...workspace, alerts: [
+    { id: 'giveaway', kind: 'giveaway', title: 'توقف إعلان الجيف أوي', detail: 'الرسالة الأصلية غير متاحة', channelId: 'channel', retryable: false },
+    { id: '5', kind: 'schedule', title: 'توقفت رسالة مجدولة', detail: 'القناة غير متاحة', target: 'automation' },
+  ] } : fixtureResponse(url);
+  const { dom, doc } = await page('alerts', response);
+  assert.match(doc.body.textContent, /توقف إعلان الجيف أوي/);
+  assert.equal(doc.querySelectorAll('[data-alert-dismiss]').length, 2);
+  assert.ok(doc.querySelector('[data-alert-cancel="5"]'));
+  assert.equal(doc.querySelector('[data-alert-retry]'), null, 'missing Discord messages cannot be retried');
+  dom.window.close();
 });
 test('upstream failure renders retry, never empty guild list', async () => {
   const { dom, doc } = await page('overview', url => url.startsWith('/api/workspace/') ? { error: 'Discord unavailable' } : fixtureResponse(url));
