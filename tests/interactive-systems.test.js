@@ -101,6 +101,10 @@ test('ticket banner renders before the support description and keeps the open bu
   assert.equal(belowPayload.embeds[0].description, 'افتح تذكرة');
   assert.equal(belowPayload.embeds[1].image.url, 'attachment://diskoko-banner.png');
   assert.equal(payload.components[0].components[0].label, 'فتح تذكرة');
+  const logo = discordMessageOptions({ embeds: [{ title: 'الدعم', description: 'افتح تذكرة' }] }, { mime: 'image/png', base64: 'aGVsbG8=' }, 'logo');
+  const logoPayload = JSON.parse(logo.body.get('payload_json'));
+  assert.equal(logoPayload.embeds.length, 1);
+  assert.equal(logoPayload.embeds[0].thumbnail.url, 'attachment://diskoko-banner.png');
 });
 
 test('giveaway GIF remains animated and video is attached without an invalid image embed', () => {
@@ -126,6 +130,8 @@ test('poll question and option images attach to the matching embeds', () => {
   assert.equal(payload.embeds[2].thumbnail, undefined);
   assert.equal(result.body.get('files[0]').type, 'image/png');
   assert.equal(result.body.get('files[1]').type, 'image/png');
+  const logo = pollMessageOptions(message, png, [null, null], 'logo');
+  assert.equal(JSON.parse(logo.body.get('payload_json')).embeds[0].thumbnail.url, 'attachment://poll-0.png');
 });
 
 test('event sign-up edits the event card even when an image embed comes first', async () => {
