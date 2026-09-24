@@ -15,6 +15,7 @@ import { migrateLocalAi, mountLocalAi, workerAuthorized } from "./lib/local-ai.j
 import { migrateInteractiveSystems, mountInteractiveSystems, startGiveawayRunner } from "./lib/interactive-systems.js";
 import { isPublicStaticPath } from "./lib/public-files.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
+import { publicError } from "./lib/http-error.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -379,13 +380,25 @@ async function manageableGuilds(user) {
   const token = await discordUserToken(user);
   if (!token) throw problem('انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.', 401);
   let response;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try { response = await fetch(`${DISCORD_API}/users/@me/guilds`, { signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${token}` } }); }
-    catch (error) { if (attempt) throw problem('تعذر الاتصال بـ Discord. أعد المحاولة بعد قليل.', 502); continue; }
-    if (response.ok || response.status < 500 || attempt) break;
+    catch (error) {
+      if (attempt === 2) throw problem('تعذر الاتصال بـ Discord مؤقتًا. أعد المحاولة بعد قليل.', 503);
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+      continue;
+    }
+    if (response.ok || response.status === 401 || attempt === 2 || (response.status !== 429 && response.status < 500)) break;
+    const retryAfter = Number(response.headers.get('retry-after'));
+    const delay = response.status === 429 && Number.isFinite(retryAfter) ? Math.min(5000, Math.max(500, retryAfter * 1000)) : 500 * (attempt + 1);
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
-  if (!response.ok) throw problem(response.status === 401 ? 'انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.' : 'تعذر تحميل السيرفرات من Discord. أعد المحاولة بعد قليل.', response.status === 401 ? 401 : 502);
-  return (await response.json()).filter(manageable);
+  if (!response.ok) {
+    console.warn('Discord guild list unavailable', { status: response.status, requestId: requestContext.getStore()?.requestId });
+    throw problem(response.status === 401 ? 'انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.' : 'تعذر تحميل السيرفرات من Discord مؤقتًا. أعد المحاولة بعد قليل.', response.status === 401 ? 401 : 503);
+  }
+  const guilds = await response.json().catch(() => null);
+  if (!Array.isArray(guilds)) throw problem('تعذر قراءة رد Discord مؤقتًا. أعد المحاولة بعد قليل.', 503);
+  return guilds.filter(manageable);
 }
 async function authorizedGuild(user, guildId) {
   return (await manageableGuilds(user)).find((guild) => String(guild.id) === String(guildId)) || null;
@@ -634,9 +647,12 @@ app.post("/api/billing/upgrade-requests", requireUser, async (req, res, next) =>
   res.status(201).json({ request: rows[0], message: 'استلمنا طلب الترقية. سنفتح الدفع فور ربط بوابة الدفع.' });
 } catch (e) { if (e.message.includes('كوبون')) return res.status(400).json({ error: e.message }); next(e); } });
 app.get("/api/account/overview", requireUser, async (req, res, next) => { try {
-  const [subscriptionResult, guilds, connections, activity, customBots, customTemplates, scheduledMessages, changeSets, invoices, upgradeRequest, projects] = await Promise.all([
+  const [subscriptionResult, guildResult, connections, activity, customBots, customTemplates, scheduledMessages, changeSets, invoices, upgradeRequest, projects] = await Promise.all([
     pool.query("SELECT plan,status,billing_interval,current_period_start,current_period_end,grace_until,cancel_at_period_end,amount_sar,currency,provider,created_at,updated_at FROM subscriptions WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 1", [req.user.id]),
-    manageableGuilds(req.user),
+    manageableGuilds(req.user).then(guilds => ({ guilds, unavailable: false })).catch(error => {
+      if (error.status !== 503) throw error;
+      return { guilds: null, unavailable: true };
+    }),
     pool.query("SELECT guild_id,guild_name,install_status,last_error,last_verified_at,updated_at FROM guild_connections WHERE user_id=$1 ORDER BY updated_at DESC", [req.user.id]),
     pool.query("SELECT event_type,created_at,metadata FROM usage_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 8", [req.user.id]),
     planCapacity(req.user, "customBots"), planCapacity(req.user, "customTemplates"), planCapacity(req.user, "scheduledMessages"), planCapacity(req.user, "changeSetsPerMonth"),
@@ -647,9 +663,12 @@ app.get("/api/account/overview", requireUser, async (req, res, next) => { try {
   const subscription = subscriptionResult.rows[0] || { plan: canonicalPlan(req.user.plan), status: canonicalPlan(req.user.plan) === 'free' ? 'trial' : 'active', current_period_end: null, billing_interval: null };
   const access = subscriptionAccess(subscription);
   const byGuild = new Map(connections.rows.map((row) => [String(row.guild_id), row]));
+  // An upstream Discord outage must not hide the user's account. Cached entries
+  // are display-only; all server changes still require a fresh permission check.
+  const guilds = guildResult.guilds || connections.rows.filter(row => row.install_status === 'installed').map(row => ({ id: row.guild_id, name: row.guild_name || 'سيرفر مرتبط', icon: null, owner: false, permissions: null }));
   const usage = { servers: await planCapacity(req.user, 'servers'), customBots, customTemplates, scheduledMessages, changeSetsPerMonth: changeSets };
   const alerts = Object.entries(usage).flatMap(([key, capacity]) => { const alert = usageAlert(capacity); return alert ? [{ key, ...alert }] : []; });
-  res.json({ user: publicUser(req.user), plan: subscription, access, limits: entitlementsFor(req.user), usage, alerts, invoices: invoices.rows, upgradeRequest: upgradeRequest.rows[0] || null, plans: publicPlanCatalog(), projects: projects.rows, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows });
+  res.json({ user: publicUser(req.user), plan: subscription, access, limits: entitlementsFor(req.user), usage, alerts, invoices: invoices.rows, upgradeRequest: upgradeRequest.rows[0] || null, plans: publicPlanCatalog(), projects: projects.rows, discordUnavailable: guildResult.unavailable, servers: guilds.map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, connection: byGuild.get(String(guild.id)) || { guild_id: guild.id, guild_name: guild.name, install_status: "not_connected" } })), activity: activity.rows });
 } catch (e) { next(e); } });
 app.get("/api/account/subscription-events", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT provider,event_id,event_type,provider_ref,payload,processed_at FROM subscription_events WHERE user_id=$1 ORDER BY processed_at DESC LIMIT 50", [req.user.id]); res.json({ events: rows }); } catch (e) { next(e); } });
 app.get("/api/account/entitlements", requireUser, async (req, res, next) => { try { const [servers, customBots, customTemplates, scheduledMessages, changeSetsPerMonth] = await Promise.all([planCapacity(req.user, "servers"), planCapacity(req.user, "customBots"), planCapacity(req.user, "customTemplates"), planCapacity(req.user, "scheduledMessages"), planCapacity(req.user, "changeSetsPerMonth")]); res.json({ plan: canonicalPlan(req.user.plan), limits: entitlementsFor(req.user), usage: { servers, customBots, customTemplates, scheduledMessages, changeSetsPerMonth } }); } catch (e) { next(e); } });
@@ -969,7 +988,7 @@ app.use((req, res, next) => isPublicStaticPath(req.path) ? publicStatic(req, res
 app.get("/login", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.html")));
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
-app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const status = Number(error.status) >= 400 && Number(error.status) < 500 ? Number(error.status) : 500; res.status(status).json({ error: status === 500 ? "حدث خطأ غير متوقع" : error.message, requestId: req.requestId, ...(error.code ? { code: error.code } : {}), ...(error.capacity ? { capacity: error.capacity } : {}) }); });
+app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const { status, body } = publicError(error, req.requestId); res.status(status).json(body); });
 
 migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
@@ -977,5 +996,4 @@ migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).th
   startScheduleRunner({ pool, discordBotFetch, authorizedGuild });
   startGiveawayRunner({ pool, discordBotFetch });
 }).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
-
 

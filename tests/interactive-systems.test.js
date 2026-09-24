@@ -184,13 +184,14 @@ test('giveaway participant count appears on the original card after joining', as
 });
 
 test('giveaway announcement retry keeps the same winner and edits the original message', async () => {
-  const giveaway = { id: 'giveaway-1', guild_id: 'guild-1', channel_id: 'channel-1', message_id: 'message-1', prize: 'هدية', winner_count: 1, status: 'active', winners: [], announced_at: null };
+  const giveaway = { id: 'giveaway-1', guild_id: 'guild-1', channel_id: 'channel-1', message_id: 'message-1', prize: 'هدية', winner_count: 1, status: 'active', winners: [], announced_at: null, next_retry_at: null };
   let entryReads = 0;
   const edits = [];
   const pool = {
-    async query(sql) {
-      if (sql.startsWith('SELECT id FROM diskoko_giveaways')) return { rows: giveaway.announced_at ? [] : [{ id: giveaway.id }] };
-      if (sql.startsWith('UPDATE diskoko_giveaways SET announced_at')) { giveaway.announced_at = new Date(); return { rowCount: 1 }; }
+    async query(sql, values) {
+      if (sql.startsWith('SELECT id FROM diskoko_giveaways')) return { rows: giveaway.announced_at || giveaway.next_retry_at > new Date() ? [] : [{ id: giveaway.id }] };
+      if (sql.startsWith('UPDATE diskoko_giveaways SET next_retry_at')) { giveaway.next_retry_at = new Date(Date.now() + values[1] * 1000); return { rowCount: 1 }; }
+      if (sql.startsWith('UPDATE diskoko_giveaways SET announced_at')) { giveaway.announced_at = new Date(); giveaway.next_retry_at = null; return { rowCount: 1 }; }
       throw new Error(`Unexpected pool query: ${sql}`);
     },
     async connect() { return {
@@ -209,6 +210,10 @@ test('giveaway announcement retry keeps the same winner and edits the original m
   assert.equal(giveaway.status, 'ended');
   assert.deepEqual(giveaway.winners, ['winner-1']);
   assert.equal(giveaway.announced_at, null);
+  assert.ok(giveaway.next_retry_at > new Date());
+  await processDueGiveaways({ pool, discordBotFetch });
+  assert.equal(edits.length, 1, 'do not retry before the scheduled time');
+  giveaway.next_retry_at = new Date(Date.now() - 1000);
   await processDueGiveaways({ pool, discordBotFetch });
   assert.equal(entryReads, 1);
   assert.equal(edits.length, 2);
