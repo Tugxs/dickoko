@@ -232,18 +232,89 @@ async function prepareAiImage(file) {
   }
   throw Error('الصورة كبيرة جدًا بعد الضغط. اختر صورة أصغر.');
 }
-async function prepareWelcomeBackground(file) {
+async function prepareWelcomeBackground(file, logoFile = null, logoPosition = 'left') {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 25 * 1024 * 1024) throw Error('اختر تصميم PNG أو JPG أو WebP لا يتجاوز 25 ميجابايت.');
   const bitmap = await createImageBitmap(file);
   if (bitmap.width * bitmap.height > 50_000_000) { bitmap.close(); throw Error('أبعاد الصورة كبيرة جدًا. استخدم صورة أقل من 50 مليون بكسل.'); }
   const canvas = document.createElement('canvas'); canvas.width = 1200; canvas.height = 480;
   const scale = Math.max(1200 / bitmap.width, 480 / bitmap.height);
   const width = bitmap.width * scale, height = bitmap.height * scale;
-  canvas.getContext('2d').drawImage(bitmap, (1200 - width) / 2, (480 - height) / 2, width, height);
+  const context = canvas.getContext('2d');
+  context.drawImage(bitmap, (1200 - width) / 2, (480 - height) / 2, width, height);
   bitmap.close();
+  if (logoFile) {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(logoFile.type) || logoFile.size > 25 * 1024 * 1024) throw Error('اختر شعار PNG أو JPG أو WebP حتى 25 ميجابايت.');
+    const logo = await createImageBitmap(logoFile);
+    const x = { left: 185, center: 600, right: 1015 }[logoPosition] || 185, y = 240, radius = 72;
+    context.fillStyle = '#bea0ff'; context.beginPath(); context.arc(x, y, radius + 7, 0, 2 * Math.PI); context.fill();
+    context.save(); context.beginPath(); context.arc(x, y, radius, 0, 2 * Math.PI); context.clip();
+    const logoScale = Math.max(2 * radius / logo.width, 2 * radius / logo.height);
+    context.drawImage(logo, x - logo.width * logoScale / 2, y - logo.height * logoScale / 2, logo.width * logoScale, logo.height * logoScale);
+    context.restore(); logo.close();
+  }
   const base64 = canvas.toDataURL('image/png').split(',')[1];
   if (base64.length > 6_500_000) throw Error('التصميم كبير بعد التجهيز. استخدم صورة أبسط أو أصغر.');
   return { mime: 'image/png', base64 };
+}
+async function prepareCircleLogo(file) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file?.type) || file.size > 25 * 1024 * 1024) throw Error('اختر صورة شعار PNG أو JPG أو WebP حتى 25 ميجابايت.');
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+  const context = canvas.getContext('2d');
+  context.beginPath(); context.arc(128, 128, 124, 0, 2 * Math.PI); context.clip();
+  const scale = Math.max(256 / bitmap.width, 256 / bitmap.height);
+  context.drawImage(bitmap, (256 - bitmap.width * scale) / 2, (256 - bitmap.height * scale) / 2, bitmap.width * scale, bitmap.height * scale);
+  bitmap.close();
+  const base64 = canvas.toDataURL('image/png').split(',')[1];
+  if (base64.length > 460000) throw Error('تعذر تجهيز الشعار. استخدم صورة أبسط.');
+  return { mime: 'image/png', base64 };
+}
+async function prepareDesignedCard(backgroundFile, logoFile, position = 'right') {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(backgroundFile?.type) || backgroundFile.size > 25 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(logoFile?.type) || logoFile.size > 25 * 1024 * 1024) throw Error('ارفع تصميمًا وشعارًا بصيغة PNG أو JPG أو WebP حتى 25 ميجابايت لكل صورة.');
+  const [background, logo] = await Promise.all([createImageBitmap(backgroundFile), createImageBitmap(logoFile)]);
+  const canvas = document.createElement('canvas'); canvas.width = 1200; canvas.height = 480;
+  const context = canvas.getContext('2d');
+  const cover = Math.max(1200 / background.width, 480 / background.height);
+  context.drawImage(background, (1200 - background.width * cover) / 2, (480 - background.height * cover) / 2, background.width * cover, background.height * cover);
+  const x = { left: 185, center: 600, right: 1015 }[position] || 1015, y = 240, radius = 96;
+  context.fillStyle = '#bea0ff'; context.beginPath(); context.arc(x, y, radius + 8, 0, 2 * Math.PI); context.fill();
+  context.save(); context.beginPath(); context.arc(x, y, radius, 0, 2 * Math.PI); context.clip();
+  const scale = Math.max(2 * radius / logo.width, 2 * radius / logo.height);
+  context.drawImage(logo, x - logo.width * scale / 2, y - logo.height * scale / 2, logo.width * scale, logo.height * scale);
+  context.restore(); background.close(); logo.close();
+  for (const quality of [0.82, 0.68, 0.5]) {
+    const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+    if (base64.length < 460000) return { mime: 'image/jpeg', base64 };
+  }
+  throw Error('التصميم مع الشعار كبير بعد التجهيز. استخدم خلفية أبسط.');
+}
+const imageStyleFields = prefix => `<label>طريقة عرض الصورة<select id="${prefix}Style"><option value="normal">صورة عادية</option><option value="logo">شعار دائري صغير داخل البطاقة</option><option value="design">شعار دائري داخل تصميمك</option></select></label><div id="${prefix}Design" hidden><label>صورة الشعار التي ستُدمج داخل التصميم<input id="${prefix}Logo" type="file" accept="image/png,image/jpeg,image/webp"></label><label>مكان الشعار<select id="${prefix}LogoPosition"><option value="right">يمين</option><option value="center">الوسط</option><option value="left">يسار</option></select></label></div>`;
+const imageStylePreviewUrls = new WeakMap();
+async function prepareStyledImage(file, prefix) {
+  const style = document.querySelector(`#${prefix}Style`)?.value || 'normal';
+  if (!file) { if (style !== 'normal') throw Error('ارفع صورة ثابتة لاستخدام الشعار الدائري أو التصميم.'); return null; }
+  if (style === 'logo') return prepareCircleLogo(file);
+  if (style === 'design') return prepareDesignedCard(file, document.querySelector(`#${prefix}Logo`)?.files[0], document.querySelector(`#${prefix}LogoPosition`)?.value);
+  return prepareAiImage(file);
+}
+function updateStyledImagePreview(prefix, preview) {
+  const style = document.querySelector(`#${prefix}Style`)?.value || 'normal';
+  const controls = document.querySelector(`#${prefix}Design`);
+  if (controls) controls.hidden = style !== 'design';
+  if (!preview) return;
+  if (preview.tagName === 'IMG' && !preview.parentElement.classList.contains('ai-card-image-wrap')) {
+    const wrapper = document.createElement('div'); wrapper.className = 'ai-card-image-wrap'; preview.before(wrapper); wrapper.append(preview);
+  }
+  preview.classList.toggle('ai-card-logo-preview', style === 'logo');
+  preview.classList.toggle('ai-card-design-preview', style === 'design');
+  let overlay = preview.parentElement?.querySelector('.ai-card-logo-overlay');
+  if (style === 'design' && preview.tagName === 'IMG') {
+    if (!overlay) { overlay = document.createElement('img'); overlay.className = 'ai-card-logo-overlay'; preview.after(overlay); }
+    const file = document.querySelector(`#${prefix}Logo`)?.files[0];
+    if (file) { if (!imageStylePreviewUrls.has(file)) imageStylePreviewUrls.set(file, URL.createObjectURL(file)); overlay.src = imageStylePreviewUrls.get(file); }
+    overlay.hidden = !file;
+    overlay.dataset.position = document.querySelector(`#${prefix}LogoPosition`)?.value || 'right';
+  } else if (overlay) overlay.hidden = true;
 }
 async function prepareAiMedia(file) {
   if (!['image/gif', 'video/mp4', 'video/quicktime'].includes(file.type) || !file.size || file.size > 20 * 1024 * 1024) throw Error('اختر GIF أو MP4 أو MOV بحجم لا يتجاوز 20 ميجابايت.');
@@ -357,6 +428,7 @@ async function assistant() {
       $('#aiMessageImage').accept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime';
       $('#aiMessageImage').closest('label').firstChild.textContent = 'صورة حتى 10 ميجابايت أو GIF/فيديو MP4/MOV حتى 20 ميجابايت';
       $('#aiMessageImage').closest('label').insertAdjacentHTML('afterend', '<label>موضع الصورة في Discord<select id="aiMessageImagePosition"><option value="above">فوق النص</option><option value="below">تحت النص</option></select></label>');
+      $('#aiMessageImagePosition').closest('label').insertAdjacentHTML('afterend', imageStyleFields('aiMessageImage'));
       $('#aiMessageImagePosition').closest('label').insertAdjacentHTML('afterend', `<section class="ai-discord-preview" aria-label="معاينة الرسالة داخل السيرفر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>شكل تقريبي قبل الإرسال</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${textChannels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiMessagePreviewChannel"></div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div><div class="ai-message-preview-body"><p id="aiMessagePreviewText"></p>${item.has_attachment ? `<img class="ai-discord-banner" src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="الصورة المرفقة">` : ''}</div></div>${previewMemberRail()}</div></section>`);
       let messagePreviewUrl = '';
       const updateMessagePreview = () => {
@@ -365,7 +437,8 @@ async function assistant() {
         $('#aiMessagePreviewText').innerHTML = discordMarkdownPreview($('#aiMessageContent').value.trim() || 'اكتب نص الرسالة لترى المعاينة.');
         document.querySelectorAll('[data-preview-channel]').forEach(entry => entry.classList.toggle('active', entry.dataset.previewChannel === $('#aiMessageChannel').value));
         const body = $('.ai-message-preview-body'), banner = body.querySelector('.ai-discord-banner');
-        if (banner) $('#aiMessageImagePosition').value === 'above' ? body.prepend(banner) : body.append(banner);
+        if (banner) { const visual = banner.closest('.ai-card-image-wrap') || banner; $('#aiMessageImagePosition').value === 'above' ? body.prepend(visual) : body.append(visual); }
+        updateStyledImagePreview('aiMessageImage', banner);
       };
       $('#aiMessageContent').oninput = updateMessagePreview;
       document.querySelectorAll('.ai-format-toolbar [data-format]').forEach(formatButton => formatButton.onclick = () => {
@@ -377,13 +450,16 @@ async function assistant() {
       });
       $('#aiMessageChannel').onchange = updateMessagePreview;
       $('#aiMessageImagePosition').onchange = updateMessagePreview;
+      $('#aiMessageImageStyle').onchange = updateMessagePreview;
+      $('#aiMessageImageLogo').onchange = updateMessagePreview;
+      $('#aiMessageImageLogoPosition').onchange = updateMessagePreview;
       $('#aiMessageImage').onchange = event => {
         if (messagePreviewUrl) URL.revokeObjectURL(messagePreviewUrl);
         const file = event.target.files[0]; if (!file) return;
         messagePreviewUrl = URL.createObjectURL(file);
         let banner = $('.ai-message-preview-body .ai-discord-banner');
         const video = file.type.startsWith('video/');
-        if (banner && (banner.tagName === 'VIDEO') !== video) { banner.remove(); banner = null; }
+        if (banner && (banner.tagName === 'VIDEO') !== video) { (banner.closest('.ai-card-image-wrap') || banner).remove(); banner = null; }
         if (!banner) { banner = document.createElement(video ? 'video' : 'img'); banner.className = 'ai-discord-banner'; if (video) banner.controls = true; else banner.alt = 'معاينة الصورة'; $('.ai-message-preview-body').append(banner); }
         banner.src = messagePreviewUrl; updateMessagePreview();
       };
@@ -393,10 +469,12 @@ async function assistant() {
       $('#aiMessageSend').onclick = async event => { event.currentTarget.disabled = true; try {
         if (!$('#aiMessageChannel').value) throw Error('اختر القناة التي ستُنشر فيها الرسالة.');
         const file = $('#aiMessageImage').files[0];
+        if (!file && $('#aiMessageImageStyle').value !== 'normal') throw Error('ارفع صورة للشعار أو التصميم أولًا.');
         const animated = file && (file.type === 'image/gif' || file.type.startsWith('video/'));
-        const image = file && !animated ? await prepareAiImage(file) : undefined;
+        if (animated && $('#aiMessageImageStyle').value !== 'normal') throw Error('الشعار الدائري يحتاج صورة PNG أو JPG أو WebP ثابتة.');
+        const image = file && !animated ? await prepareStyledImage(file, 'aiMessageImage') : undefined;
         const media = animated ? await prepareAiMedia(file) : undefined;
-        await api(`/api/ai/requests/${encodeURIComponent(item.id)}/send-message`, { method: 'POST', body: JSON.stringify({ confirmed: true, channelId: $('#aiMessageChannel').value, content: $('#aiMessageContent').value, image, media, imagePosition: $('#aiMessageImagePosition').value }) });
+        await api(`/api/ai/requests/${encodeURIComponent(item.id)}/send-message`, { method: 'POST', body: JSON.stringify({ confirmed: true, channelId: $('#aiMessageChannel').value, content: $('#aiMessageContent').value, image, media, imagePosition: $('#aiMessageImageStyle').value === 'logo' ? 'logo' : $('#aiMessageImagePosition').value }) });
         closeDialog(); await loadMessages(); toast('نُشرت الرسالة في Discord.');
       } catch (error) { modalError(error); $('#aiMessageSend').disabled = false; } };
     });
@@ -404,9 +482,9 @@ async function assistant() {
       const channels = (state.data.channels || []).filter(channel => [0, 5].includes(channel.type));
       const channelOptions = `<label>القناة<select id="aiSpecialChannel"><option value="">اختر قناة نصية</option>${channels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === String(plan.channel || '').toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}</select></label>`;
       const format = `<div class="ai-format-toolbar" role="toolbar" aria-label="تنسيق Discord"><button type="button" data-special-format="bold">عريض</button><button type="button" data-special-format="italic">مائل</button><button type="button" data-special-format="underline">تسطير</button><button type="button" data-special-format="strike">شطب</button><button type="button" data-special-format="spoiler">مخفي</button><button type="button" data-special-format="quote">اقتباس</button><button type="button" data-special-format="code">كود</button></div><small class="form-note">هذه تنسيقات Discord المتاحة داخل البطاقة. حجم الخط وشكله يحدده تطبيق Discord.</small>`;
-      const pollFields = `<label>سؤال الاستطلاع<input id="aiSpecialTitle" maxlength="180" value="${esc(plan.question || '')}"></label><label>توضيح السؤال (اختياري)<textarea id="aiSpecialDescription" maxlength="600" rows="2">${esc(plan.description || '')}</textarea></label>${format}<label>صورة فوق السؤال (اختيارية)<input id="aiQuestionImage" type="file" accept="image/png,image/jpeg,image/webp"></label><div id="aiPollOptions"></div><button class="btn secondary" type="button" id="aiAddPollOption">＋ أضف خيارًا</button><p class="form-note">من خيارين إلى ٩ خيارات؛ يمكن وضع صورة مصغّرة لكل خيار. لكل عضو صوت واحد قابل للتغيير.</p>`;
-      const eventFields = `<label>عنوان الفعالية<input id="aiSpecialTitle" maxlength="180" value="${esc(plan.title || '🎊 فعالية قادمة')}"></label><label>تفاصيل الفعالية وموعدها<textarea id="aiSpecialDescription" maxlength="1000" rows="4">${esc(plan.description || 'انضم إلينا في فعالية مجتمعنا!')}</textarea></label>${format}<label class="check-row"><input id="aiEventSignup" type="checkbox" checked>تفعيل زر تسجيل المشاركين والعدّاد</label><label>مسمى زر التسجيل<input id="aiEventButton" maxlength="80" value="${esc(plan.buttonLabel || 'سجّل مشاركتك')}"></label><label>صورة أو GIF أو فيديو للفعالية (اختياري)<input id="aiSpecialImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime"></label>`;
-      const welcomeFields = `<label>عنوان بطاقة الترحيب<input id="aiSpecialTitle" maxlength="180" value="${esc(plan.title || '👋 أهلًا بك في مجتمعنا!')}"></label><label>رسالة كل عضو جديد<textarea id="aiSpecialDescription" maxlength="1000" rows="4">${esc(plan.description || 'مرحبًا {member}، سعداء بانضمامك إلينا!')}</textarea></label>${format}<small class="form-note">استخدم {member} لإشارة العضو و{name} لاسمه.</small><label>تصميم الترحيب الخاص بسيرفرك<input id="aiSpecialImage" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="check-row"><input id="aiWelcomeComposite" type="checkbox">ضع صورة العضو داخل التصميم الذي رفعته</label><div class="form-grid two"><label>موضع صورة العضو<select id="aiWelcomeAvatarPosition"><option value="right">يمين</option><option value="center">الوسط</option><option value="left">يسار</option><option value="top">أعلى بطاقة Discord فقط</option></select></label><label>موضع التصميم عند استخدام بطاقة Discord<select id="aiWelcomeBannerPosition"><option value="below">تحت البطاقة</option><option value="above">فوق البطاقة</option></select></label></div><div id="aiWelcomeCompositeControls" class="form-grid two" hidden><label>ارتفاع صورة العضو <output id="aiWelcomeVerticalValue">50%</output><input id="aiWelcomeAvatarVertical" type="range" min="15" max="85" value="50"></label><label>حجم صورة العضو <output id="aiWelcomeRadiusValue">95</output><input id="aiWelcomeAvatarRadius" type="range" min="60" max="160" value="95"></label></div><small class="form-note">يمكن رفع صورة PNG أو JPG أو WebP حتى 25 ميجابايت بأي نسبة أبعاد؛ يجهزها الاستوديو تلقائيًا إلى 1200×480. إذا دمجت الصورة، تظهر معاينة تصميمك مع صورة عضو تجريبية، وعند الانضمام تُستخدم صورته الحقيقية.</small>`;
+      const pollFields = `<label>سؤال الاستطلاع<input id="aiSpecialTitle" maxlength="180" value="${esc(plan.question || '')}"></label><label>توضيح السؤال (اختياري)<textarea id="aiSpecialDescription" maxlength="600" rows="2">${esc(plan.description || '')}</textarea></label>${format}<label>صورة السؤال أو تصميمه (اختياري)<input id="aiQuestionImage" type="file" accept="image/png,image/jpeg,image/webp"></label>${imageStyleFields('aiQuestionImage')}<div id="aiPollOptions"></div><button class="btn secondary" type="button" id="aiAddPollOption">＋ أضف خيارًا</button><p class="form-note">من خيارين إلى ٩ خيارات؛ يمكن وضع صورة مصغّرة لكل خيار. لكل عضو صوت واحد قابل للتغيير.</p>`;
+      const eventFields = `<label>عنوان الفعالية<input id="aiSpecialTitle" maxlength="180" value="${esc(plan.title || '🎊 فعالية قادمة')}"></label><label>تفاصيل الفعالية وموعدها<textarea id="aiSpecialDescription" maxlength="1000" rows="4">${esc(plan.description || 'انضم إلينا في فعالية مجتمعنا!')}</textarea></label>${format}<label class="check-row"><input id="aiEventSignup" type="checkbox" checked>تفعيل زر تسجيل المشاركين والعدّاد</label><label>مسمى زر التسجيل<input id="aiEventButton" maxlength="80" value="${esc(plan.buttonLabel || 'سجّل مشاركتك')}"></label><label>صورة أو GIF أو فيديو للفعالية (اختياري)<input id="aiSpecialImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime"></label>${imageStyleFields('aiSpecialImage')}`;
+      const welcomeFields = `<label>عنوان بطاقة الترحيب<input id="aiSpecialTitle" maxlength="180" value="${esc(plan.title || '👋 أهلًا بك في مجتمعنا!')}"></label><label>رسالة كل عضو جديد<textarea id="aiSpecialDescription" maxlength="1000" rows="4">${esc(plan.description || 'مرحبًا {member}، سعداء بانضمامك إلينا!')}</textarea></label>${format}<small class="form-note">استخدم {member} لإشارة العضو و{name} لاسمه.</small><label>تصميم الترحيب الخاص بسيرفرك<input id="aiSpecialImage" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="check-row"><input id="aiWelcomeComposite" type="checkbox">ضع صورة العضو داخل التصميم الذي رفعته</label><div class="form-grid two"><label>موضع صورة العضو<select id="aiWelcomeAvatarPosition"><option value="right">يمين</option><option value="center">الوسط</option><option value="left">يسار</option><option value="top">أعلى بطاقة Discord فقط</option></select></label><label>موضع التصميم عند استخدام بطاقة Discord<select id="aiWelcomeBannerPosition"><option value="below">تحت البطاقة</option><option value="above">فوق البطاقة</option></select></label></div><div id="aiWelcomeCompositeControls" class="form-grid two" hidden><label>ارتفاع صورة العضو <output id="aiWelcomeVerticalValue">50%</output><input id="aiWelcomeAvatarVertical" type="range" min="15" max="85" value="50"></label><label>حجم صورة العضو <output id="aiWelcomeRadiusValue">95</output><input id="aiWelcomeAvatarRadius" type="range" min="60" max="160" value="95"></label><label>شعار السيرفر الدائري (اختياري)<input id="aiWelcomeServerLogo" type="file" accept="image/png,image/jpeg,image/webp"></label><label>مكان شعار السيرفر<select id="aiWelcomeServerLogoPosition"><option value="left">يسار</option><option value="right">يمين</option><option value="center">الوسط</option></select></label></div><small class="form-note">يمكن رفع صورة PNG أو JPG أو WebP حتى 25 ميجابايت بأي نسبة أبعاد؛ يجهزها الاستوديو تلقائيًا إلى 1200×480. إذا دمجت الصورة، تظهر معاينة تصميمك مع صورة عضو تجريبية، وعند الانضمام تُستخدم صورته الحقيقية. يمكن إضافة شعار سيرفرك في مكان آخر داخل التصميم.</small>`;
       const body = `${channelOptions}${plan.kind === 'poll' ? pollFields : plan.kind === 'event' ? eventFields : welcomeFields}<label>لون البطاقة<input id="aiSpecialColor" type="color" value="${/^#[0-9a-f]{6}$/i.test(plan.color || '') ? esc(plan.color) : '#8b5cf6'}"></label><section class="ai-discord-preview" aria-label="معاينة داخل السيرفر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>تتحدث مباشرة مع التعديل</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${channels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiSpecialPreviewChannel"></div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div><div class="ai-discord-embed" id="aiSpecialPreviewCard"><div id="aiWelcomePreviewAvatar" class="ai-welcome-preview-avatar" hidden aria-label="صورة العضو الجديد">ع</div><b id="aiSpecialPreviewTitle"></b><div id="aiSpecialPreviewImage"></div><p id="aiSpecialPreviewBody"></p><div id="aiSpecialPreviewOptions"></div></div><span class="ai-discord-button" id="aiSpecialPreviewButton"></span></div>${previewMemberRail()}</div></section><label class="check-row"><input id="aiSpecialConfirmed" type="checkbox">راجعت البطاقة والإعدادات وأوافق على ${plan.kind === 'welcome' ? 'تفعيل الترحيب التلقائي' : 'النشر'}.</label>`;
       modal(plan.kind === 'poll' ? 'مراجعة الاستطلاع' : plan.kind === 'event' ? 'مراجعة إعلان الفعالية' : 'بطاقة الترحيب التلقائي', body, '<button class="btn secondary" id="aiSpecialCancel">إلغاء</button><button class="btn primary" id="aiSpecialLaunch" disabled>تأكيد التنفيذ</button>');
       const optionFiles = [];
@@ -456,7 +534,11 @@ async function assistant() {
           const y = Number($('#aiWelcomeAvatarVertical').value);
           const diameter = Number($('#aiWelcomeAvatarRadius').value) / 6;
           preview.innerHTML = `<div class="ai-welcome-image-composite"><img src="${fileUrl(file)}" alt="تصميم الترحيب الذي رفعته"><span class="ai-welcome-image-avatar" style="left:${x}%;top:${y}%;width:${diameter}%" aria-label="مكان صورة العضو الجديد">👤</span></div><small class="form-note">صورة العضو هنا تجريبية؛ تُستخدم صورته الحقيقية عند انضمامه.</small>`;
+          const logoFile = $('#aiWelcomeServerLogo').files[0];
+          if (logoFile) { const logoX = { left: 185, center: 600, right: 1015 }[$('#aiWelcomeServerLogoPosition').value] / 12; preview.querySelector('.ai-welcome-image-composite').insertAdjacentHTML('beforeend', `<img class="ai-welcome-server-logo" src="${fileUrl(logoFile)}" style="left:${logoX}%" alt="شعار سيرفرك">`); }
         } else preview.innerHTML = file && file.type.startsWith('image/') ? `<img class="ai-special-preview-image" src="${fileUrl(file)}" alt="صورة البطاقة">` : file ? `📎 ${esc(file.name)}` : composite ? '<small class="form-note">ارفع تصميم سيرفرك لتظهر معاينته مع صورة العضو هنا.</small>' : '';
+        if (plan.kind === 'poll') updateStyledImagePreview('aiQuestionImage', preview.querySelector('img'));
+        if (plan.kind === 'event') updateStyledImagePreview('aiSpecialImage', preview.querySelector('img'));
         if (plan.kind === 'welcome') {
           const card = $('#aiSpecialPreviewCard');
           if (composite) card.append(preview);
@@ -474,11 +556,14 @@ async function assistant() {
       $('#aiSpecialConfirmed').onchange = event => { $('#aiSpecialLaunch').disabled = !event.target.checked; };
       $('#aiSpecialLaunch').onclick = async event => { event.currentTarget.disabled = true; try {
         if (!$('#aiSpecialChannel').value || !$('#aiSpecialTitle').value.trim()) throw Error('اختر القناة واكتب عنوان البطاقة.');
-        const payload = { confirmed: true, channelId: $('#aiSpecialChannel').value, color: $('#aiSpecialColor').value, ...(plan.kind === 'poll' ? { question: $('#aiSpecialTitle').value, description: $('#aiSpecialDescription').value, options: optionFiles.map(entry => entry.text.trim()), questionImage: $('#aiQuestionImage').files[0] ? await prepareAiImage($('#aiQuestionImage').files[0]) : null, optionImages: await Promise.all(optionFiles.map(entry => entry.file ? prepareAiImage(entry.file) : null)) } : { title: $('#aiSpecialTitle').value, description: $('#aiSpecialDescription').value, ...(plan.kind === 'event' ? { signupEnabled: $('#aiEventSignup').checked, buttonLabel: $('#aiEventButton').value } : { avatarPosition: $('#aiWelcomeAvatarPosition').value, bannerPosition: $('#aiWelcomeBannerPosition').value, composite: $('#aiWelcomeComposite').checked, avatarVertical: Number($('#aiWelcomeAvatarVertical').value), avatarRadius: Number($('#aiWelcomeAvatarRadius').value) }) }) };
+        const payload = { confirmed: true, channelId: $('#aiSpecialChannel').value, color: $('#aiSpecialColor').value, ...(plan.kind === 'poll' ? { question: $('#aiSpecialTitle').value, description: $('#aiSpecialDescription').value, options: optionFiles.map(entry => entry.text.trim()), questionImage: await prepareStyledImage($('#aiQuestionImage').files[0], 'aiQuestionImage'), questionStyle: $('#aiQuestionImageStyle').value, optionImages: await Promise.all(optionFiles.map(entry => entry.file ? prepareAiImage(entry.file) : null)) } : { title: $('#aiSpecialTitle').value, description: $('#aiSpecialDescription').value, ...(plan.kind === 'event' ? { signupEnabled: $('#aiEventSignup').checked, buttonLabel: $('#aiEventButton').value } : { avatarPosition: $('#aiWelcomeAvatarPosition').value, bannerPosition: $('#aiWelcomeBannerPosition').value, composite: $('#aiWelcomeComposite').checked, avatarVertical: Number($('#aiWelcomeAvatarVertical').value), avatarRadius: Number($('#aiWelcomeAvatarRadius').value) }) }) };
         if (plan.kind === 'poll' && (payload.options.some(value => !value) || new Set(payload.options.map(value => value.toLocaleLowerCase('ar'))).size !== payload.options.length)) throw Error('اكتب خيارات مختلفة دون ترك خيار فارغ.');
         const file = plan.kind !== 'poll' ? $('#aiSpecialImage').files[0] : null;
         if (plan.kind === 'welcome' && payload.composite && !file) throw Error('ارفع تصميم الترحيب الخاص بسيرفرك أولًا.');
-        if (file) { if (plan.kind === 'welcome' && payload.composite) payload.image = await prepareWelcomeBackground(file); else if (['image/gif', 'video/mp4', 'video/quicktime'].includes(file.type)) payload.media = await prepareAiMedia(file); else payload.image = await prepareAiImage(file); }
+        if (plan.kind === 'welcome' && payload.composite && $('#aiWelcomeServerLogo').files[0] && $('#aiWelcomeServerLogoPosition').value === $('#aiWelcomeAvatarPosition').value) throw Error('اختر مكانًا مختلفًا للشعار وصورة العضو حتى لا يتداخلا.');
+        if (plan.kind === 'event' && !file && $('#aiSpecialImageStyle').value !== 'normal') throw Error('ارفع صورة للشعار أو التصميم أولًا.');
+        if (file) { if (plan.kind === 'welcome' && payload.composite) payload.image = await prepareWelcomeBackground(file, $('#aiWelcomeServerLogo').files[0], $('#aiWelcomeServerLogoPosition').value); else if (['image/gif', 'video/mp4', 'video/quicktime'].includes(file.type)) { if (plan.kind === 'event' && $('#aiSpecialImageStyle').value !== 'normal') throw Error('الشعار الدائري يحتاج صورة ثابتة.'); payload.media = await prepareAiMedia(file); } else payload.image = plan.kind === 'event' ? await prepareStyledImage(file, 'aiSpecialImage') : await prepareAiImage(file); }
+        if (plan.kind === 'event' && $('#aiSpecialImageStyle').value === 'logo') payload.imagePosition = 'logo';
         await api(`/api/ai/requests/${encodeURIComponent(item.id)}/launch-interactive`, { method: 'POST', body: JSON.stringify(payload) });
         releasePreviews(); closeDialog(); await loadMessages(); toast(plan.kind === 'welcome' ? 'فُعّل الترحيب التلقائي للأعضاء الجدد.' : 'نُشرت البطاقة في Discord.');
       } catch (error) { modalError(error); $('#aiSpecialLaunch').disabled = false; } };
@@ -492,6 +577,7 @@ async function assistant() {
       const channelField = `<label>قناة النشر<select id="aiInteractiveChannel"><option value="">اختر قناة نصية</option>${channels.map(channel => `<option value="${esc(channel.id)}" ${channel.name.toLowerCase() === String(plan.channel || '').toLowerCase() ? 'selected' : ''}>#${esc(channel.name)}</option>`).join('')}${plan.kind === 'tickets' ? `<option value="__create__" ${knownChannel ? '' : 'selected'}>＋ أنشئ قناة دعم جديدة</option>` : ''}</select></label>${plan.kind === 'tickets' ? `<label>اسم القناة الجديدة (إذا اخترت إنشاءها)<input id="aiNewSupportChannel" maxlength="100" value="${esc(!knownChannel && plan.channel ? plan.channel : 'الدعم')}"></label>` : ''}`;
       const fields = plan.kind === 'giveaway' ? `${channelField}<label>الجائزة<input id="aiPrize" maxlength="160" value="${esc(plan.prize)}"></label><div class="form-grid two"><label>المدة بالدقائق<input id="aiDuration" type="number" min="5" max="43200" value="${Number(plan.durationMinutes) || 60}"></label><label>عدد الفائزين<input id="aiWinners" type="number" min="1" max="20" value="${Number(plan.winnerCount) || 1}"></label></div><p class="form-note">ينشر البوت زر مشاركة ويسحب الفائزين عشوائيًا عند انتهاء المدة.</p>` : plan.kind === 'poll' ? `${channelField}<label>السؤال<input id="aiPollQuestion" maxlength="180" value="${esc(plan.question)}"></label>${plan.options.map((option, index) => `<label>الخيار ${index + 1}<input data-ai-poll-option maxlength="70" value="${esc(option)}"></label>`).join('')}<p class="form-note">يسمح الاستطلاع بصوت واحد لكل عضو، ويمكنه تغيير اختياره. تظهر النتائج له بعد التصويت.</p>` : `${channelField}<label>عنوان لوحة الدعم<input id="aiTicketTitle" maxlength="100" value="${esc(plan.title)}"></label><label>الوصف<textarea id="aiTicketDescription" maxlength="800" rows="3">${esc(plan.description)}</textarea></label><label>تصنيف التذاكر (اختياري)<select id="aiTicketCategory"><option value="">دون تصنيف</option>${(state.data.channels || []).filter(channel => channel.type === 4).map(channel => `<option value="${esc(channel.id)}">${esc(channel.name)}</option>`).join('')}</select></label><label>رتبة فريق الدعم (مطلوبة)<select id="aiStaffRole"><option value="">اختر رتبة الدعم</option>${(state.data.roles || []).filter(role => role.id !== guild).map(role => `<option value="${esc(role.id)}">${esc(role.name)}</option>`).join('')}</select></label><p class="form-note">يفتح زر الدعم قناة خاصة لكل عضو. التذكرة خاصة بصاحبها ورتبة الدعم المحددة.</p>`;
       modal(plan.kind === 'giveaway' ? 'مراجعة الجيف آواي' : plan.kind === 'poll' ? 'مراجعة الاستطلاع' : 'مراجعة لوحة تذاكر الدعم', `${fields}${plan.kind !== 'poll' ? '<label>بنر اختياري يظهر مع البطاقة<input id="aiInteractiveImage" type="file" accept="image/png,image/jpeg,image/webp"></label><label>موضع البنر<select id="aiInteractiveImagePosition"><option value="above">فوق التفاصيل</option><option value="below">تحت التفاصيل</option></select></label>' : ''}<section class="ai-discord-preview" aria-label="معاينة قبل النشر"><div class="ai-discord-preview-head"><b>معاينة داخل ${esc(state.data?.guild?.name || 'سيرفرك')}</b><small>شكل تقريبي يتحدث مع تعديل الحقول · لا ينشر شيئًا</small></div><div class="ai-discord-server"><aside class="ai-discord-server-channels"><b>${esc(state.data?.guild?.name || 'السيرفر')}</b>${channels.slice(0, 7).map(channel => `<span data-preview-channel="${esc(channel.id)}"># ${esc(channel.name)}</span>`).join('')}</aside><div class="ai-discord-server-chat"><div class="ai-discord-channel-name" id="aiPreviewChannelName"># اختر قناة النشر</div><div class="ai-discord-bot-name">◈ ديسكوكو <small>BOT</small></div>${item.has_attachment && plan.kind !== 'poll' ? `<img class="ai-discord-banner" src="/api/ai/requests/${encodeURIComponent(item.id)}/attachment" alt="البنر المرفق">` : ''}<div class="ai-discord-embed"><b id="aiPreviewTitle"></b><p id="aiPreviewDescription"></p><small id="aiPreviewMeta"></small></div><span class="ai-discord-button" id="aiPreviewButton"></span></div>${previewMemberRail()}</div></section><label class="check-row"><input id="aiInteractiveConfirmed" type="checkbox">راجعت الإعدادات وأوافق على النشر في Discord.</label>`, '<button class="btn secondary" id="aiInteractiveCancel">إلغاء</button><button class="btn primary" id="aiInteractiveLaunch" disabled>نعم، أؤكد التنفيذ</button>');
+      if ($('#aiInteractiveImage')) $('#aiInteractiveImagePosition').closest('label').insertAdjacentHTML('afterend', imageStyleFields('aiInteractiveImage'));
       if (plan.kind === 'giveaway') {
         $('#aiPrize').closest('label').insertAdjacentHTML('beforebegin', `<label>عنوان الجيف آواي<input id="aiGiveawayTitle" maxlength="180" value="${esc(plan.title || (plan.prize ? `🎉 جيف آواي: ${plan.prize}` : '🎉 جيف آواي مميز'))}"></label><label>النص الذي سيظهر للأعضاء<textarea id="aiGiveawayDescription" maxlength="1000" rows="3">${esc(plan.description || 'شارك الآن بالضغط على الزر، ونتمنى لك حظًا سعيدًا!')}</textarea></label><label>لون بطاقة الجيف آواي<input id="aiGiveawayColor" type="color" value="#8b5cf6"></label>`);
       }
@@ -512,7 +598,8 @@ async function assistant() {
       if ($('#aiInteractiveImagePosition')) $('#aiInteractiveImagePosition').onchange = event => {
         const preview = $('.ai-discord-preview'), banner = preview.querySelector('.ai-discord-banner'), details = preview.querySelector('.ai-discord-embed');
         if (!banner) return;
-        if (event.target.value === 'below') details.after(banner); else details.before(banner);
+        const visual = banner.closest('.ai-card-image-wrap') || banner;
+        if (event.target.value === 'below') details.after(visual); else details.before(visual);
       };
       let previewImageUrl = '';
       if ($('#aiInteractiveImage')) $('#aiInteractiveImage').onchange = event => {
@@ -521,7 +608,7 @@ async function assistant() {
         previewImageUrl = URL.createObjectURL(file);
         const video = file.type.startsWith('video/');
         let banner = $('.ai-discord-banner');
-        if (!banner || banner.tagName.toLowerCase() !== (video ? 'video' : 'img')) { const replacement = document.createElement(video ? 'video' : 'img'); replacement.className = 'ai-discord-banner'; if (video) replacement.controls = true; else replacement.alt = 'معاينة البنر'; if (banner) banner.replaceWith(replacement); else $('.ai-discord-embed').before(replacement); banner = replacement; }
+        if (!banner || banner.tagName.toLowerCase() !== (video ? 'video' : 'img')) { const replacement = document.createElement(video ? 'video' : 'img'); replacement.className = 'ai-discord-banner'; if (video) replacement.controls = true; else replacement.alt = 'معاينة البنر'; if (banner) (banner.closest('.ai-card-image-wrap') || banner).replaceWith(replacement); else $('.ai-discord-embed').before(replacement); banner = replacement; }
         banner.src = previewImageUrl;
         if (video) { $('#aiInteractiveImagePosition').value = 'below'; $('#aiInteractiveImagePosition').disabled = true; } else $('#aiInteractiveImagePosition').disabled = false;
         $('#aiInteractiveImagePosition').dispatchEvent(new Event('change'));
@@ -538,6 +625,15 @@ async function assistant() {
         $('#aiPreviewDescription').innerHTML = discordMarkdownPreview(description || 'سيظهر وصفك هنا.');
         $('#aiPreviewMeta').textContent = `قناة النشر: ${channel}`;
         $('#aiPreviewButton').textContent = plan.kind === 'giveaway' ? '🎉 مشاركة' : plan.kind === 'poll' ? '📊 تصويت' : '🎫 فتح تذكرة دعم';
+        if ($('#aiInteractiveImageStyle')) {
+          const banner = $('.ai-discord-banner'); updateStyledImagePreview('aiInteractiveImage', banner);
+          if (banner) {
+            const visual = banner.closest('.ai-card-image-wrap') || banner, details = $('.ai-discord-embed');
+            if ($('#aiInteractiveImageStyle').value === 'logo') details.prepend(visual);
+            else if ($('#aiInteractiveImagePosition').value === 'below') details.after(visual);
+            else details.before(visual);
+          }
+        }
       };
       $('#dialogContent').addEventListener('input', updateInteractivePreview);
       $('#dialogContent').addEventListener('change', updateInteractivePreview);
@@ -549,7 +645,9 @@ async function assistant() {
         if (!$('#aiInteractiveChannel').value || (plan.kind === 'giveaway' && (!$('#aiPrize').value.trim() || !$('#aiDuration').value)) || (plan.kind === 'poll' && (!$('#aiPollQuestion').value.trim() || [...document.querySelectorAll('[data-ai-poll-option]')].some(field => !field.value.trim()))) || (plan.kind === 'tickets' && (!$('#aiTicketTitle').value.trim() || !$('#aiTicketDescription').value.trim() || !$('#aiStaffRole').value))) throw Error('أكمل الحقول المطلوبة في بطاقة المراجعة قبل النشر.');
         const imageFile = $('#aiInteractiveImage')?.files[0];
         const animated = imageFile && ['image/gif', 'video/mp4', 'video/quicktime'].includes(imageFile.type);
-        const body = { confirmed: true, channelId: creatingSupportChannel ? '' : $('#aiInteractiveChannel').value, imagePosition: $('#aiInteractiveImagePosition')?.value || 'above', image: imageFile && !animated ? await prepareAiImage(imageFile) : undefined, media: animated ? await prepareAiMedia(imageFile) : undefined, ...(plan.kind === 'giveaway' ? { title: $('#aiGiveawayTitle').value, description: $('#aiGiveawayDescription').value, color: $('#aiGiveawayColor').value, prize: $('#aiPrize').value, durationMinutes: Number($('#aiDuration').value), winnerCount: Number($('#aiWinners').value) } : plan.kind === 'poll' ? { question: $('#aiPollQuestion').value, options: [...document.querySelectorAll('[data-ai-poll-option]')].map(field => field.value) } : { title: $('#aiTicketTitle').value, description: $('#aiTicketDescription').value, color: $('#aiTicketColor').value, categoryId: $('#aiTicketCategory').value, staffRoleId: $('#aiStaffRole').value, ...(creatingSupportChannel ? { createChannelName: $('#aiNewSupportChannel').value } : {}) }) };
+        if (!imageFile && $('#aiInteractiveImageStyle')?.value !== 'normal') throw Error('ارفع صورة للشعار أو التصميم أولًا.');
+        if (animated && $('#aiInteractiveImageStyle')?.value !== 'normal') throw Error('الشعار الدائري يحتاج صورة ثابتة.');
+        const body = { confirmed: true, channelId: creatingSupportChannel ? '' : $('#aiInteractiveChannel').value, imagePosition: $('#aiInteractiveImageStyle')?.value === 'logo' ? 'logo' : $('#aiInteractiveImagePosition')?.value || 'above', image: imageFile && !animated ? await prepareStyledImage(imageFile, 'aiInteractiveImage') : undefined, media: animated ? await prepareAiMedia(imageFile) : undefined, ...(plan.kind === 'giveaway' ? { title: $('#aiGiveawayTitle').value, description: $('#aiGiveawayDescription').value, color: $('#aiGiveawayColor').value, prize: $('#aiPrize').value, durationMinutes: Number($('#aiDuration').value), winnerCount: Number($('#aiWinners').value) } : plan.kind === 'poll' ? { question: $('#aiPollQuestion').value, options: [...document.querySelectorAll('[data-ai-poll-option]')].map(field => field.value) } : { title: $('#aiTicketTitle').value, description: $('#aiTicketDescription').value, color: $('#aiTicketColor').value, categoryId: $('#aiTicketCategory').value, staffRoleId: $('#aiStaffRole').value, ...(creatingSupportChannel ? { createChannelName: $('#aiNewSupportChannel').value } : {}) }) };
         await api(`/api/ai/requests/${encodeURIComponent(item.id)}/launch-interactive`, { method: 'POST', body: JSON.stringify(body) });
         closeDialog(); await loadMessages(); toast('نُشر النظام التفاعلي في Discord.');
       } catch (error) { modalError(error); $('#aiInteractiveLaunch').disabled = false; } };
