@@ -125,6 +125,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   assert.equal(doc.querySelector('[data-ai-plan]'), null);
   doc.querySelector('[data-ai-message]').click();
   assert.ok(doc.querySelector('#aiMessageImage'));
+  assert.ok(doc.querySelector('#aiMessageImageStyle'));
   assert.equal(doc.querySelector('#aiMessageChannel').value, 'c2');
   assert.equal(doc.querySelector('#aiMessageSend').disabled, true);
   doc.querySelector('#aiMessageCancel').click();
@@ -133,6 +134,9 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   assert.match(doc.querySelector('.ai-discord-preview').textContent, /اشتراك/);
   assert.match(doc.querySelector('.ai-discord-server-channels').textContent, new RegExp(guild.name));
   assert.ok(doc.querySelector('.ai-discord-members'));
+  doc.querySelector('#aiInteractiveImageStyle').value = 'design';
+  doc.querySelector('#aiInteractiveImageStyle').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelector('#aiInteractiveImageDesign').hidden, false);
   doc.querySelector('#aiPrize').value = 'جائزة جديدة';
   doc.querySelector('#aiPrize').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.match(doc.querySelector('#aiPreviewDescription').textContent, /جائزة جديدة/);
@@ -184,9 +188,11 @@ test('poll, event and welcome open distinct live review cards', async () => {
       doc.querySelector('#aiAddPollOption').click();
       assert.equal(doc.querySelectorAll('[data-poll-text]').length, 3);
       assert.ok(doc.querySelector('#aiQuestionImage'));
+      assert.ok(doc.querySelector('#aiQuestionImageStyle'));
     } else if (kind === 'event') {
       assert.ok(doc.querySelector('#aiEventSignup'));
       assert.ok(doc.querySelector('#aiEventButton'));
+      assert.ok(doc.querySelector('#aiSpecialImageStyle'));
     } else {
       assert.match(doc.querySelector('#aiSpecialPreviewBody').textContent, /@عضو جديد/);
       assert.ok(doc.querySelector('#aiWelcomeAvatarPosition'));
@@ -200,6 +206,7 @@ test('poll, event and welcome open distinct live review cards', async () => {
       doc.querySelector('#aiWelcomeComposite').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
       assert.equal(doc.querySelector('#aiWelcomeAvatarPosition').value, 'center');
       assert.equal(doc.querySelector('#aiWelcomeCompositeControls').hidden, false);
+      assert.ok(doc.querySelector('#aiWelcomeServerLogo'));
       assert.equal(doc.querySelector('.ai-welcome-image-composite img').getAttribute('src'), 'blob:welcome-design');
       doc.querySelector('#aiWelcomeAvatarPosition').value = 'left';
       doc.querySelector('#aiWelcomeAvatarPosition').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
