@@ -16,6 +16,7 @@ import { migrateInteractiveSystems, mountInteractiveSystems, startGiveawayRunner
 import { isPublicStaticPath } from "./lib/public-files.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 import { publicError } from "./lib/http-error.js";
+import { discordRetryAfterMs } from "./lib/discord-rate-limit.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -376,7 +377,11 @@ async function discordBotFetch(pathname, options = {}) {
   let data = null; try { data = await response.json(); } catch { data = {}; }
   return { ok: response.ok, status: response.status, data, headers: response.headers };
 }
+const guildRateLimitUntil = new Map();
 async function manageableGuilds(user) {
+  const blockedUntil = guildRateLimitUntil.get(user.id) || 0;
+  if (blockedUntil > Date.now()) throw problem('Discord حدّد عدد الطلبات مؤقتًا. سنعيد التحقق عند انتهاء المهلة.', 503);
+  guildRateLimitUntil.delete(user.id);
   const token = await discordUserToken(user);
   if (!token) throw problem('انتهى ربط حساب Discord. أعد ربط الحساب للمتابعة.', 401);
   let response;
@@ -387,10 +392,19 @@ async function manageableGuilds(user) {
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
       continue;
     }
-    if (response.ok || response.status === 401 || attempt === 2 || (response.status !== 429 && response.status < 500)) break;
-    const retryAfter = Number(response.headers.get('retry-after'));
-    const delay = response.status === 429 && Number.isFinite(retryAfter) ? Math.min(5000, Math.max(500, retryAfter * 1000)) : 500 * (attempt + 1);
-    await new Promise(resolve => setTimeout(resolve, delay));
+    if (response.ok || response.status === 401 || (response.status !== 429 && response.status < 500)) break;
+    if (response.status === 429) {
+      const body = await response.clone().json().catch(() => null);
+      const delay = discordRetryAfterMs(body, response.headers);
+      guildRateLimitUntil.set(user.id, Date.now() + delay);
+      console.warn('Discord guild list rate limited', { retryAfterMs: delay, global: body?.global === true });
+      if (delay > 3000 || attempt === 2) break;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      guildRateLimitUntil.delete(user.id);
+    } else {
+      if (attempt === 2) break;
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
   }
   if (!response.ok) {
     console.warn('Discord guild list unavailable', { status: response.status, requestId: requestContext.getStore()?.requestId });
