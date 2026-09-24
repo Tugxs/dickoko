@@ -62,6 +62,9 @@ test('every executable library template has a typed review path when sent unchan
     assert.ok(draft, `Missing review path: ${task.category} / ${task.title}`);
     if (task.kind === 'message') assert.ok(draft.message, `${task.title} must open a message editor`);
     else assert.equal(draft.interactive?.kind, task.kind, `${task.title} must open its own action card`);
+    const visible = presentAiRequest({ status: 'completed', prompt: task.prompt, library_mode: 'execute', library_category: task.category, library_title: task.title, proposal: draft });
+    if (task.kind === 'message') assert.ok(visible.proposal?.message, `${task.title} must remain visible in the conversation`);
+    else assert.equal(visible.proposal?.interactive?.kind, task.kind, `${task.title} must remain visible in the conversation`);
     assert.equal(draft.draft, true);
     if (draft.message) { assert.ok(draft.message.content.trim()); assert.doesNotMatch(draft.message.content, /\[[^\]]+\]/); }
   }
