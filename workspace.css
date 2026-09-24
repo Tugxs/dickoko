@@ -41,3 +41,9 @@ dialog:has(.ai-discord-preview){width:min(1040px,calc(100vw - 30px))}.ai-discord
 @media (min-width:1151px) and (max-width:1500px){.ai-chat-layout{grid-template-columns:210px minmax(0,1fr) 220px}.ai-library{grid-column:auto;max-height:none}.ai-library-list{display:block}.ai-library-item{margin-bottom:8px}}
 .ai-library-list{display:block}
 .ai-library-item{margin-bottom:8px}
+.ai-page-head{align-items:center;gap:28px}
+.ai-page-head>div:first-child{min-width:0}
+.ai-page-head .ai-bot-connect{flex:0 1 430px;min-width:280px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(145deg,rgba(168,135,255,.12),var(--panel) 72%)}
+.ai-page-head .ai-bot-connect h3{margin:7px 0 4px}
+.ai-page-head .ai-bot-connect p{margin-bottom:7px}
+@media(max-width:900px){.ai-page-head{align-items:stretch;flex-direction:column}.ai-page-head .ai-bot-connect{flex:none;min-width:0;width:100%}}
