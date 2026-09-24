@@ -48,11 +48,13 @@ test('deep link opens the requested guild with true live data and one navigation
 test('community alerts show actionable paused giveaways and failed schedules', async () => {
   const response = url => url === `/api/workspace/${guild.id}` ? { ...workspace, alerts: [
     { id: 'giveaway', kind: 'giveaway', title: 'توقف إعلان الجيف أوي', detail: 'الرسالة الأصلية غير متاحة', channelId: 'channel', retryable: false },
+    { id: 'pending', kind: 'giveaway', title: 'تأخر إعلان الجيف أوي', detail: 'تنتظر إعادة محاولة', channelId: 'channel', stoppable: true },
     { id: '5', kind: 'schedule', title: 'توقفت رسالة مجدولة', detail: 'القناة غير متاحة', target: 'automation' },
   ] } : fixtureResponse(url);
   const { dom, doc } = await page('alerts', response);
   assert.match(doc.body.textContent, /توقف إعلان الجيف أوي/);
   assert.equal(doc.querySelectorAll('[data-alert-dismiss]').length, 2);
+  assert.ok(doc.querySelector('[data-alert-pause="pending"]'));
   assert.ok(doc.querySelector('[data-alert-cancel="5"]'));
   assert.equal(doc.querySelector('[data-alert-retry]'), null, 'missing Discord messages cannot be retried');
   dom.window.close();
