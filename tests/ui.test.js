@@ -158,6 +158,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('[data-ai-message]').click();
   assert.ok(doc.querySelector('#aiMessageImage'));
   assert.ok(doc.querySelector('#aiMessageImageStyle'));
+  assert.ok(doc.querySelector('#aiMessageContent + .ai-emoji-trigger'));
   assert.ok(doc.querySelector('#aiMessageImageLogoX'));
   assert.ok(doc.querySelector('#aiMessageImageLogoY'));
   assert.equal(doc.querySelector('#aiMessageChannel').value, 'c2');
@@ -165,6 +166,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('#aiMessageCancel').click();
   doc.querySelector('[data-ai-interactive]').click();
   assert.equal(doc.querySelector('#aiInteractiveChannel').value, 'c2');
+  assert.ok(doc.querySelector('#aiPrize + .ai-emoji-trigger'));
   assert.match(doc.querySelector('.ai-discord-preview').textContent, /اشتراك/);
   assert.match(doc.querySelector('.ai-discord-server-channels').textContent, new RegExp(guild.name));
   assert.ok(doc.querySelector('.ai-discord-members'));
@@ -227,6 +229,8 @@ test('poll, event and welcome open distinct live review cards', async () => {
     doc.querySelector('.ai-conversation').click(); await settle();
     doc.querySelector('[data-ai-interactive]').click();
     assert.ok(doc.querySelector('#aiSpecialColor'));
+    assert.ok(doc.querySelector('#aiSpecialTitle + .ai-emoji-trigger'));
+    assert.ok(doc.querySelector('#aiSpecialDescription + .ai-emoji-trigger'));
     assert.ok(doc.querySelector('.ai-discord-members'));
     doc.querySelector('#aiSpecialColor').value = '#123456';
     doc.querySelector('#aiSpecialColor').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -276,7 +280,7 @@ test('native Discord event opens location-aware editor with live preview', async
   const conversationId = '11111111-1111-4111-8111-111111111111';
   const task = aiPromptLibrary.find(item => item.kind === 'scheduled_event');
   const response = url => {
-    if (url === `/api/workspace/${guild.id}`) return { ...workspace, channels: [...workspace.channels, { id: '123456789012345678', name: 'لقاء المجتمع', type: 2 }] };
+    if (url === `/api/workspace/${guild.id}`) return { ...workspace, channels: [...workspace.channels, { id: '123456789012345678', name: 'لقاء المجتمع', type: 2 }], emojis: [{ id: '123456789012345678', name: 'party', animated: false }] };
     if (url === '/api/ai/status') return { available: true, planEnabled: true };
     if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: task.title, updated_at: '2026-09-24T00:00:00Z' }] };
     if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: task.prompt, answer: 'بطاقة مراجعة', status: 'completed', library_mode: 'execute', library_title: task.title, library_category: task.category, proposal: { interactive: { kind: 'scheduled_event', title: '', description: '' }, draft: true } }] };
@@ -295,6 +299,13 @@ test('native Discord event opens location-aware editor with live preview', async
   doc.querySelector('#aiNativeTitle').value = 'لقاء الجمعة';
   doc.querySelector('#aiNativeTitle').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.match(doc.querySelector('#aiNativePreviewTitle').textContent, /لقاء الجمعة/);
+  assert.ok(doc.querySelector('#aiNativeTitle + .ai-emoji-trigger'));
+  doc.querySelector('#aiNativeTitle').setSelectionRange(doc.querySelector('#aiNativeTitle').value.length, doc.querySelector('#aiNativeTitle').value.length);
+  doc.querySelector('#aiNativeTitle + .ai-emoji-trigger').click();
+  doc.querySelector('[data-emoji-tab="server"]').click();
+  doc.querySelector('[data-emoji-value="<:party:123456789012345678>"]').click();
+  assert.match(doc.querySelector('#aiNativeTitle').value, /<:party:123456789012345678>/);
+  assert.match(doc.querySelector('#aiNativePreviewTitle').innerHTML, /cdn\.discordapp\.com\/emojis\/123456789012345678/);
   assert.equal(doc.querySelector('#aiNativeCreate').disabled, true);
   dom.window.close();
 });

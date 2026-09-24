@@ -11,8 +11,59 @@ function discordMarkdownPreview(value) {
       .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/g, '<u>$1</u>');
     if (/^#{1,3} /.test(rendered)) rendered = `<strong class="ai-preview-heading">${rendered.replace(/^#{1,3} /, '')}</strong>`;
     if (/^&gt; /.test(rendered)) rendered = `<span class="ai-preview-quote">${rendered.slice(5)}</span>`;
-    return rendered;
+    return renderGuildEmojiMarkup(rendered);
   }).join('<br>');
+}
+const basicEmojiGroups = {
+  'وجوه': '😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 🙃 😉 😍 🥰 😘 😎 🤩 🥳 😢 😭 😡 🤔 🤗 😴 🤯 🥺 😇 😋 😏 😬 🫡',
+  'أشخاص': '👋 🤚 ✋ 🖐️ 👍 👎 👌 ✌️ 🤞 🤟 🤘 👏 🙌 🫶 🤝 💪 🙏 👀 👤 🧑 👩 👨 👶 👑',
+  'احتفال': '🎉 🎊 🎁 🎂 🎈 🎆 🎇 ✨ 🎮 🎯 🏆 🥇 🥈 🥉 🎟️ 🎫 🎵 🎶 🎤 🎧 🎬 📸',
+  'قلوب': '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💕 💞 💖 💗 💓 💘 💝 💔 ❤️‍🔥',
+  'رموز': '✅ ❌ ❗ ❓ ⚠️ 💯 🔥 ⭐ 🌟 💡 📌 📢 🔔 🔕 🔒 🔓 🛡️ ⚙️ 📅 ⏰ ⏳ ➕ ➖ ➡️ ⬅️ ⬆️ ⬇️',
+  'طبيعة': '🌸 🌹 🌻 🌷 🍀 🌿 🌈 ☀️ 🌙 🌍 🌊 ❄️ ☁️ ⚡ 🐱 🐶 🦊 🦁 🐼 🐸 🐧 🦋',
+  'طعام': '🍎 🍓 🍉 🍋 🍕 🍔 🍟 🌮 🍣 🍰 🍪 🍫 🍿 ☕ 🧃 🥤',
+};
+function renderGuildEmojiMarkup(value) {
+  const known = new Set((state.data?.emojis || []).map(emoji => String(emoji.id)));
+  return value.replace(/&lt;(a?):([A-Za-z0-9_]{2,32}):(\d{15,22})&gt;/g, (match, animated, name, id) => known.has(id) ? `<img class="ai-emoji-inline" src="https://cdn.discordapp.com/emojis/${id}.${animated ? 'gif' : 'webp'}?size=48" alt=":${name}:" title=":${name}:">` : match);
+}
+const emojiPreviewText = value => renderGuildEmojiMarkup(esc(value));
+function installAiEmojiPickers() {
+  if (screen() !== 'assistant') return;
+  const body = $('#dialogContent .dialog-body');
+  const existing = body.querySelector('.ai-emoji-picker');
+  if (existing?.emojiBind) { existing.emojiBind(); return; }
+  const fields = [...body.querySelectorAll('input:not([type]),input[type="text"],input[type="url"],textarea')].filter(field => !field.disabled && !field.readOnly && field.closest('label'));
+  if (!fields.length) return;
+  const picker = document.createElement('div'); picker.className = 'ai-emoji-picker'; picker.hidden = true;
+  picker.innerHTML = '<div class="ai-emoji-picker-head"><b>اختر إيموجي</b><button type="button" class="btn small secondary" data-emoji-close>إغلاق</button></div><div class="ai-emoji-tabs"><button type="button" data-emoji-tab="basic" class="active">إيموجيات Discord</button><button type="button" data-emoji-tab="server">إيموجيات السيرفر</button></div><label class="ai-emoji-search">بحث<input type="search" placeholder="ابحث عن إيموجي السيرفر"></label><div class="ai-emoji-results"></div>';
+  body.append(picker);
+  let target = null, start = 0, end = 0, tab = 'basic';
+  const search = picker.querySelector('input[type="search"]'), results = picker.querySelector('.ai-emoji-results');
+  const render = () => {
+    const query = search.value.trim().toLocaleLowerCase('ar');
+    if (tab === 'server') {
+      const emojis = (state.data?.emojis || []).filter(emoji => !query || emoji.name.toLocaleLowerCase().includes(query));
+      results.innerHTML = emojis.length ? `<div class="ai-emoji-grid">${emojis.map(emoji => `<button type="button" data-emoji-value="${esc(`<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`)}" title=":${esc(emoji.name)}:"><img src="https://cdn.discordapp.com/emojis/${esc(emoji.id)}.${emoji.animated ? 'gif' : 'webp'}?size=48" alt=":${esc(emoji.name)}:"></button>`).join('')}</div>` : '<p class="form-note">لا توجد إيموجيات متاحة لهذا السيرفر أو لا تطابق البحث.</p>';
+    } else results.innerHTML = Object.entries(basicEmojiGroups).filter(([name]) => !query || name.includes(query)).map(([name, values]) => `<b class="ai-emoji-group">${name}</b><div class="ai-emoji-grid">${values.split(' ').map(value => `<button type="button" data-emoji-value="${esc(value)}" title="${esc(name)}">${value}</button>`).join('')}</div>`).join('') || '<p class="form-note">لا توجد نتائج. اختر تصنيفًا أو امسح البحث.</p>';
+  };
+  const bindFields = () => [...body.querySelectorAll('input:not([type]),input[type="text"],input[type="url"],textarea')].filter(field => !field.disabled && !field.readOnly && field.closest('label') && !field.nextElementSibling?.classList.contains('ai-emoji-trigger')).forEach(field => {
+    const trigger = document.createElement('button'); trigger.type = 'button'; trigger.className = 'ai-emoji-trigger'; trigger.textContent = '😀'; trigger.title = 'أضف إيموجي عند المؤشر'; trigger.setAttribute('aria-label', `إيموجي: ${field.closest('label').textContent.trim()}`);
+    field.after(trigger);
+    trigger.onclick = event => { event.preventDefault(); target = field; start = field.selectionStart ?? field.value.length; end = field.selectionEnd ?? start; picker.hidden = false; render(); };
+  });
+  picker.emojiBind = bindFields;
+  bindFields();
+  picker.querySelector('[data-emoji-close]').onclick = () => { picker.hidden = true; target?.focus(); };
+  picker.querySelectorAll('[data-emoji-tab]').forEach(button => button.onclick = () => { tab = button.dataset.emojiTab; picker.querySelectorAll('[data-emoji-tab]').forEach(item => item.classList.toggle('active', item === button)); search.value = ''; render(); });
+  search.oninput = render;
+  results.onclick = event => {
+    const button = event.target.closest('[data-emoji-value]'); if (!button || !target) return;
+    const emoji = button.dataset.emojiValue, next = target.value.slice(0, start) + emoji + target.value.slice(end);
+    if (target.maxLength > 0 && next.length > target.maxLength) { toast('هذا الحقل وصل إلى الحد الأقصى من الأحرف.'); return; }
+    target.setRangeText(emoji, start, end, 'end'); target.dispatchEvent(new Event('input', { bubbles: true })); target.focus();
+    start = end = target.selectionStart; picker.hidden = true;
+  };
 }
 const fmt = value => new Intl.NumberFormat('ar-SA').format(value ?? 0);
 const date = value => value ? new Date(value).toLocaleString('ar-SA', { dateStyle: 'medium', timeStyle: 'short' }) : 'لم يتم بعد';
@@ -57,6 +108,7 @@ function modal(title, body, footer = '') {
   $('#dialogContent').querySelectorAll('.ai-discord-bot-name').forEach(node => { node.innerHTML = `◈ ${esc(state.aiBotName || 'ديسكوكو')} <small>BOT</small>`; });
   if (state.aiBotName) $('#dialogContent').querySelectorAll('.form-note').forEach(node => { node.textContent = node.textContent.replace('بواسطة بوت ديسكوكو', `بواسطة بوت ${state.aiBotName}`); });
   $('#closeDialog').onclick = closeDialog;
+  installAiEmojiPickers();
   if (!dialog.open) dialog.showModal();
 }
 function closeDialog() { $('#dialog').querySelectorAll('input[type="password"]').forEach(input => { input.value = ''; }); $('#dialog').close(); }
@@ -561,9 +613,9 @@ async function assistant() {
         channelSelect.innerHTML = `<option value="">اختر ${type === 'stage' ? 'قناة Stage' : 'قناة صوتية'}</option>${(type === 'stage' ? stages : voice).map(channel => `<option value="${esc(channel.id)}">${esc(channel.name)}</option>`).join('')}`;
         if ([...channelSelect.options].some(option => option.value === old)) channelSelect.value = old;
         $('#aiNativeChannelWrap').hidden = type === 'elsewhere'; $('#aiNativeLocationWrap').hidden = type !== 'elsewhere';
-        $('#aiNativePreviewTitle').textContent = $('#aiNativeTitle').value.trim() || 'اسم الحدث';
-        $('#aiNativePreviewDescription').textContent = $('#aiNativeDescription').value.trim() || 'تفاصيل الحدث ستظهر هنا.';
-        $('#aiNativePreviewLocation').textContent = type === 'elsewhere' ? `📍 ${$('#aiNativeLocation').value || 'مكان الحدث أو رابطه'}` : `${type === 'stage' ? '🎙️' : '🔊'} ${channelSelect.selectedOptions[0]?.textContent || 'اختر القناة'}`;
+        $('#aiNativePreviewTitle').innerHTML = emojiPreviewText($('#aiNativeTitle').value.trim() || 'اسم الحدث');
+        $('#aiNativePreviewDescription').innerHTML = discordMarkdownPreview($('#aiNativeDescription').value.trim() || 'تفاصيل الحدث ستظهر هنا.');
+        $('#aiNativePreviewLocation').innerHTML = emojiPreviewText(type === 'elsewhere' ? `📍 ${$('#aiNativeLocation').value || 'مكان الحدث أو رابطه'}` : `${type === 'stage' ? '🎙️' : '🔊'} ${channelSelect.selectedOptions[0]?.textContent || 'اختر القناة'}`);
         const begin = new Date($('#aiNativeStart').value), finish = new Date($('#aiNativeEnd').value);
         $('#aiNativePreviewDate').textContent = Number.isFinite(begin.getTime()) && Number.isFinite(finish.getTime()) ? `${begin.toLocaleString('ar-SA', { dateStyle: 'medium', timeStyle: 'short' })} – ${finish.toLocaleTimeString('ar-SA', { timeStyle: 'short' })}${$('#aiNativeRepeat').value === 'none' ? '' : $('#aiNativeRepeat').value === 'daily' ? ' · يوميًا' : ' · أسبوعيًا'}` : 'حدد موعد البداية والنهاية';
       };
@@ -601,6 +653,7 @@ async function assistant() {
         $('#aiPollOptions').querySelectorAll('[data-poll-image]').forEach(input => input.onchange = () => { optionFiles[Number(input.dataset.pollImage)].file = input.files[0] || null; update(); });
         $('#aiPollOptions').querySelectorAll('[data-poll-remove]').forEach(button => button.onclick = () => { optionFiles.splice(Number(button.dataset.pollRemove), 1); renderOptions(); update(); });
         $('#aiAddPollOption').disabled = optionFiles.length >= 9;
+        installAiEmojiPickers();
       };
       if (plan.kind === 'poll') { (plan.options?.length >= 2 ? plan.options : ['', '']).forEach(text => optionFiles.push({ text, file: null })); renderOptions(); $('#aiAddPollOption').onclick = () => { if (optionFiles.length < 9) { optionFiles.push({ text: '', file: null }); renderOptions(); update(); } }; }
       const update = () => {
@@ -608,10 +661,10 @@ async function assistant() {
         $('#aiSpecialPreviewChannel').textContent = channel;
         document.querySelectorAll('[data-preview-channel]').forEach(entry => entry.classList.toggle('active', entry.dataset.previewChannel === $('#aiSpecialChannel').value));
         $('#aiSpecialPreviewCard').style.borderColor = $('#aiSpecialColor').value;
-        $('#aiSpecialPreviewTitle').textContent = $('#aiSpecialTitle').value || 'العنوان';
+        $('#aiSpecialPreviewTitle').innerHTML = emojiPreviewText($('#aiSpecialTitle').value || 'العنوان');
         const text = plan.kind === 'poll' ? `${$('#aiSpecialDescription').value}\nاختر إجابة واحدة. يمكنك تغيير صوتك.` : $('#aiSpecialDescription').value.replaceAll('{member}', '@عضو جديد').replaceAll('{name}', 'عضو جديد');
         $('#aiSpecialPreviewBody').innerHTML = discordMarkdownPreview(text);
-        $('#aiSpecialPreviewOptions').innerHTML = plan.kind === 'poll' ? optionFiles.map((entry, index) => `<div class="ai-poll-preview-option">${entry.file ? `<img src="${fileUrl(entry.file)}" alt="صورة الخيار ${index + 1}">` : ''}<span>${index + 1}. ${esc(entry.text || 'الخيار')}</span></div>`).join('') : '';
+        $('#aiSpecialPreviewOptions').innerHTML = plan.kind === 'poll' ? optionFiles.map((entry, index) => `<div class="ai-poll-preview-option">${entry.file ? `<img src="${fileUrl(entry.file)}" alt="صورة الخيار ${index + 1}">` : ''}<span>${index + 1}. ${emojiPreviewText(entry.text || 'الخيار')}</span></div>`).join('') : '';
         const avatarPreview = $('#aiWelcomePreviewAvatar');
         const composite = plan.kind === 'welcome' && $('#aiWelcomeComposite').checked;
         avatarPreview.hidden = plan.kind !== 'welcome' || composite;
@@ -628,7 +681,7 @@ async function assistant() {
           $('#aiSpecialPreviewCard').dataset.avatarPosition = position;
           avatarPreview.textContent = ($('#aiSpecialTitle').value.match(/\{name\}/) ? 'ع' : '✦');
         }
-        $('#aiSpecialPreviewButton').textContent = plan.kind === 'poll' ? '📊 تصويت' : plan.kind === 'event' ? $('#aiEventSignup').checked ? `${$('#aiEventButton').value || 'سجّل مشاركتك'} · المسجلون ٠` : 'دون زر تسجيل' : 'يُرسل تلقائيًا عند الانضمام';
+        $('#aiSpecialPreviewButton').innerHTML = emojiPreviewText(plan.kind === 'poll' ? '📊 تصويت' : plan.kind === 'event' ? $('#aiEventSignup').checked ? `${$('#aiEventButton').value || 'سجّل مشاركتك'} · المسجلون ٠` : 'دون زر تسجيل' : 'يُرسل تلقائيًا عند الانضمام');
         $('#aiSpecialPreviewButton').hidden = plan.kind === 'event' && !$('#aiEventSignup').checked;
         const file = plan.kind === 'poll' ? $('#aiQuestionImage').files[0] : $('#aiSpecialImage').files[0];
         const preview = $('#aiSpecialPreviewImage');
@@ -694,6 +747,7 @@ async function assistant() {
         $('#aiPrize').closest('label').insertAdjacentHTML('beforebegin', `<label>عنوان الجيف آواي<input id="aiGiveawayTitle" maxlength="180" value="${esc(plan.title || (plan.prize ? `🎉 جيف آواي: ${plan.prize}` : '🎉 جيف آواي مميز'))}"></label><label>النص الذي سيظهر للأعضاء<textarea id="aiGiveawayDescription" maxlength="1000" rows="3">${esc(plan.description || 'شارك الآن بالضغط على الزر، ونتمنى لك حظًا سعيدًا!')}</textarea></label><label>لون بطاقة الجيف آواي<input id="aiGiveawayColor" type="color" value="#8b5cf6"></label>`);
       }
       if (plan.kind === 'tickets') $('#aiTicketDescription').closest('label').insertAdjacentHTML('afterend', '<label>لون بطاقة الدعم<input id="aiTicketColor" type="color" value="#8b5cf6"></label>');
+      installAiEmojiPickers();
       const descriptionField = plan.kind === 'giveaway' ? $('#aiGiveawayDescription') : plan.kind === 'tickets' ? $('#aiTicketDescription') : null;
       if (descriptionField) {
         descriptionField.closest('label').insertAdjacentHTML('afterend', '<div class="ai-format-toolbar" role="toolbar" aria-label="تنسيق نص البطاقة"><button type="button" data-card-format="bold">عريض</button><button type="button" data-card-format="italic">مائل</button><button type="button" data-card-format="underline">تسطير</button><button type="button" data-card-format="strike">شطب</button><button type="button" data-card-format="spoiler">مخفي</button><button type="button" data-card-format="quote">اقتباس</button><button type="button" data-card-format="code">كود</button></div>');
@@ -732,7 +786,7 @@ async function assistant() {
         const channel = $('#aiInteractiveChannel').selectedOptions[0]?.textContent || 'اختر قناة النشر';
         $('#aiPreviewChannelName').textContent = channel.startsWith('#') ? channel : `# ${channel}`;
         document.querySelectorAll('[data-preview-channel]').forEach(entry => entry.classList.toggle('active', entry.dataset.previewChannel === $('#aiInteractiveChannel').value));
-        $('#aiPreviewTitle').textContent = title;
+        $('#aiPreviewTitle').innerHTML = emojiPreviewText(title);
         if (plan.kind === 'giveaway' || plan.kind === 'tickets') $('.ai-discord-embed').style.borderColor = (plan.kind === 'giveaway' ? $('#aiGiveawayColor') : $('#aiTicketColor')).value;
         $('#aiPreviewDescription').innerHTML = discordMarkdownPreview(description || 'سيظهر وصفك هنا.');
         $('#aiPreviewMeta').textContent = `قناة النشر: ${channel}`;
