@@ -133,7 +133,10 @@ export async function startDiscordBot({ pool } = {}) {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])] });
 
   client.on(Events.GuildMemberAdd, member => {
-    if (databasePool) void sendWelcomeCard(member, databasePool).catch(error => console.error('Welcome card delivery failed', member.guild.id, error.message));
+    if (databasePool) void (async () => {
+      const linked = (await databasePool.query('SELECT 1 FROM ai_bot_connections WHERE guild_id=$1', [member.guild.id])).rowCount;
+      if (!linked) await sendWelcomeCard(member, databasePool);
+    })().catch(error => console.error('Welcome card delivery failed', member.guild.id, error.message));
   });
 
   // Count events only after an administrator opts in. Never read or store message content.
@@ -246,5 +249,4 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 }
-
 

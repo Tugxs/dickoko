@@ -74,6 +74,24 @@ test('bot pages separate designs, live commands and AI connection state', async 
   const commandPage = await page('commands'); assert.equal(commandPage.doc.querySelectorAll('.command-check').length, 3); assert.equal(commandPage.doc.querySelector('#botEnabled').checked, true); commandPage.dom.window.close();
   const assistantPage = await page('assistant'); assert.match(assistantPage.doc.body.textContent, /الجهاز المحلي غير متصل/); assert.match(assistantPage.doc.body.textContent, /AI ديسكوكو/); assistantPage.dom.window.close();
 });
+test('AI bot card guides connection and sends the token only in the protected connect request', async () => {
+  const response = url => url === `/api/ai/bot-connection?guildId=${guild.id}` ? { bot: null }
+    : url === '/api/ai/bot-connection' ? { bot: { id: 'bot-1', name: 'بوت السيرفر', online: true } }
+      : fixtureResponse(url);
+  const { dom, doc, requests } = await page('assistant', response);
+  assert.match(doc.querySelector('.ai-bot-connect').textContent, /اربط بوتك الخاص/);
+  assert.equal(doc.querySelector('.ai-bot-connect a').getAttribute('href'), '/ai-bot-guide.html');
+  doc.querySelector('#aiBotConnect').click();
+  doc.querySelector('#aiBotToken').value = 'a'.repeat(60);
+  doc.querySelector('#aiBotSave').click(); await settle();
+  const sent = requests.find(entry => entry.url === '/api/ai/bot-connection' && entry.options.method === 'POST');
+  assert.equal(JSON.parse(sent.options.body).guildId, guild.id);
+  assert.equal(JSON.parse(sent.options.body).token, 'a'.repeat(60));
+  assert.equal(doc.querySelector('#aiBotToken').value, '');
+  assert.match(doc.querySelector('.ai-bot-connected').textContent, /بوت السيرفر/);
+  assert.doesNotMatch(doc.body.textContent, /a{60}/);
+  dom.window.close();
+});
 
 test('change history counts applied structure and published giveaway as two completed actions', async () => {
   const response = url => url === `/api/workspace/${guild.id}` ? {

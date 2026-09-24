@@ -17,6 +17,7 @@ import { isPublicStaticPath } from "./lib/public-files.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 import { publicError } from "./lib/http-error.js";
 import { discordRetryAfterMs } from "./lib/discord-rate-limit.js";
+import { botTokenForPublication, connectedBot, connectedBotMetadata, migrateAiBotConnections, mountAiBotConnections, restoreAiBots } from "./lib/ai-bot-connections.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -372,8 +373,9 @@ async function refreshDiscordUserToken(user) {
   return tokens.access_token;
 }
 async function discordBotFetch(pathname, options = {}) {
-  if (!process.env.DISCORD_BOT_TOKEN) return { ok: false, status: 503, data: { message: "Discord bot غير مهيأ" } };
-  const response = await fetch(`${DISCORD_API}${pathname}`, { signal: AbortSignal.timeout(20000), ...options, headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) } });
+  const token = requestContext.getStore()?.aiBotToken || process.env.DISCORD_BOT_TOKEN;
+  if (!token) return { ok: false, status: 503, data: { message: "Discord bot غير مهيأ" } };
+  const response = await fetch(`${DISCORD_API}${pathname}`, { signal: AbortSignal.timeout(20000), ...options, headers: { Authorization: `Bot ${token}`, ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) } });
   let data = null; try { data = await response.json(); } catch { data = {}; }
   return { ok: response.ok, status: response.status, data, headers: response.headers };
 }
@@ -864,9 +866,18 @@ app.post("/api/projects/:id/bind-guild", requireUser, requireWriteAccess, async 
     res.json({ project: rows[0] });
   } catch (e) { next(e); }
 });
+mountAiBotConnections(app, { pool, requireUser, requireWriteAccess, authorizedGuild, audit });
+app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message)$/, requireUser, async (req, res, next) => { try {
+  const item = (await pool.query('SELECT guild_id FROM ai_requests WHERE id=$1 AND user_id=$2', [req.path.split('/')[4], req.user.id])).rows[0];
+  if (item) {
+    const bot = await botTokenForPublication(pool, item.guild_id);
+    if (bot) { const context = requestContext.getStore(); context.aiBotToken = bot.token; context.aiBotId = bot.id; context.aiBotMemberJoins = bot.memberJoins; req.publishingBotId = bot.id; }
+  }
+  next();
+} catch (error) { next(error); } });
 mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: getDiscordBotStatus });
 mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch, requirePlanCapacity });
-mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus });
+mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus: () => requestContext.getStore()?.aiBotId ? { online: true, memberJoins: requestContext.getStore().aiBotMemberJoins } : getDiscordBotStatus() });
 app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,archived_at,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY archived_at NULLS FIRST,updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
 app.patch("/api/projects/:id", requireUser, requireWriteAccess, async (req, res, next) => { try { const name = String(req.body.name || '').trim().slice(0, 80); if (name.length < 2) return res.status(400).json({ error: 'اكتب اسمًا من حرفين على الأقل.' }); const { rows } = await pool.query("UPDATE projects SET name=$1,updated_at=NOW() WHERE id=$2 AND user_id=$3 RETURNING id,name,guild_id,deployment_status,archived_at,created_at,updated_at", [name, req.params.id, req.user.id]); if (!rows[0]) return res.status(404).json({ error: 'المشروع غير موجود.' }); await audit(req.user.id, 'project.rename', 'project', rows[0].id, { name }); res.json({ project: rows[0] }); } catch (e) { next(e); } });
@@ -981,7 +992,7 @@ app.post('/api/reports', requireUser, rateLimit(5, 60_000), async (req,res,next)
   await audit(req.user.id,'report.create','report',rows[0].id,{category});res.status(201).json({report:rows[0]});
 }catch(e){next(e);}});
 app.use((req, res, next) => {
-  if (["/", "/index.html", "/app.js", "/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/ai-library-catalog.js", "/workspace.css", "/checkout.html", "/checkout.js", "/admin", "/admin-login", "/admin.html", "/admin-console.20260921.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  if (["/", "/index.html", "/app.js", "/account.html", "/dashboard", "/account.js", "/dashboard.css", "/studio", "/studio.html", "/workspace.js", "/ai-library-catalog.js", "/workspace.css", "/ai-bot-guide.html", "/checkout.html", "/checkout.js", "/admin", "/admin-login", "/admin.html", "/admin-console.20260921.js"].includes(req.path)) res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
   next();
 });
 app.get("/admin.html", (_req, res) => res.redirect(301, "/admin"));
@@ -1004,10 +1015,16 @@ app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
 app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const { status, body } = publicError(error, req.requestId); res.status(status).json(body); });
 
-migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => {
+migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => migrateAiBotConnections(pool)).then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
   void startDiscordBot({ pool });
+  void restoreAiBots(pool).catch(error => console.error('Connected AI bots restore failed', error.message));
   startScheduleRunner({ pool, discordBotFetch, authorizedGuild });
-  startGiveawayRunner({ pool, discordBotFetch });
+  startGiveawayRunner({ pool, discordBotFetch: async (pathname, options, giveaway) => {
+    if (!giveaway?.publishing_bot_id) return discordBotFetch(pathname, options);
+    const bot = await connectedBot(pool, giveaway.guild_id);
+    if (!bot || bot.id !== giveaway.publishing_bot_id) return { ok: false, status: 410, data: { message: 'Connected bot removed' } };
+    return discordBotFetch(pathname, { ...options, headers: { ...options.headers, Authorization: `Bot ${bot.token}` } });
+  } });
 }).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
 
