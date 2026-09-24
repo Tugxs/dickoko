@@ -158,6 +158,8 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('[data-ai-message]').click();
   assert.ok(doc.querySelector('#aiMessageImage'));
   assert.ok(doc.querySelector('#aiMessageImageStyle'));
+  assert.ok(doc.querySelector('#aiMessageImageLogoX'));
+  assert.ok(doc.querySelector('#aiMessageImageLogoY'));
   assert.equal(doc.querySelector('#aiMessageChannel').value, 'c2');
   assert.equal(doc.querySelector('#aiMessageSend').disabled, true);
   doc.querySelector('#aiMessageCancel').click();
@@ -169,6 +171,19 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   doc.querySelector('#aiInteractiveImageStyle').value = 'design';
   doc.querySelector('#aiInteractiveImageStyle').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   assert.equal(doc.querySelector('#aiInteractiveImageDesign').hidden, false);
+  doc.querySelector('#aiInteractiveImageLogoX').value = '30';
+  doc.querySelector('#aiInteractiveImageLogoX').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  doc.querySelector('#aiInteractiveImageLogoY').value = '70';
+  doc.querySelector('#aiInteractiveImageLogoY').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.equal(doc.querySelector('#aiInteractiveImageLogoXValue').textContent, '30%');
+  assert.equal(doc.querySelector('#aiInteractiveImageLogoYValue').textContent, '70%');
+  dom.window.URL.createObjectURL = () => 'blob:design-preview';
+  dom.window.URL.revokeObjectURL = () => {};
+  Object.defineProperty(doc.querySelector('#aiInteractiveImage'), 'files', { value: [new dom.window.File(['design'], 'design.png', { type: 'image/png' })] });
+  Object.defineProperty(doc.querySelector('#aiInteractiveImageLogo'), 'files', { value: [new dom.window.File(['logo'], 'logo.png', { type: 'image/png' })] });
+  doc.querySelector('#aiInteractiveImage').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelector('.ai-card-logo-overlay').style.left, '30%');
+  assert.equal(doc.querySelector('.ai-card-logo-overlay').style.top, '70%');
   doc.querySelector('#aiPrize').value = 'جائزة جديدة';
   doc.querySelector('#aiPrize').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.match(doc.querySelector('#aiPreviewDescription').textContent, /جائزة جديدة/);
@@ -221,10 +236,14 @@ test('poll, event and welcome open distinct live review cards', async () => {
       assert.equal(doc.querySelectorAll('[data-poll-text]').length, 3);
       assert.ok(doc.querySelector('#aiQuestionImage'));
       assert.ok(doc.querySelector('#aiQuestionImageStyle'));
+      assert.ok(doc.querySelector('#aiQuestionImageLogoX'));
+      assert.ok(doc.querySelector('#aiQuestionImageLogoY'));
     } else if (kind === 'event') {
       assert.ok(doc.querySelector('#aiEventSignup'));
       assert.ok(doc.querySelector('#aiEventButton'));
       assert.ok(doc.querySelector('#aiSpecialImageStyle'));
+      assert.ok(doc.querySelector('#aiSpecialImageLogoX'));
+      assert.ok(doc.querySelector('#aiSpecialImageLogoY'));
     } else {
       assert.match(doc.querySelector('#aiSpecialPreviewBody').textContent, /@عضو جديد/);
       assert.ok(doc.querySelector('#aiWelcomeAvatarPosition'));
@@ -239,6 +258,12 @@ test('poll, event and welcome open distinct live review cards', async () => {
       assert.equal(doc.querySelector('#aiWelcomeAvatarPosition').value, 'center');
       assert.equal(doc.querySelector('#aiWelcomeCompositeControls').hidden, false);
       assert.ok(doc.querySelector('#aiWelcomeServerLogo'));
+      Object.defineProperty(doc.querySelector('#aiWelcomeServerLogo'), 'files', { value: [new dom.window.File(['logo'], 'logo.png', { type: 'image/png' })] });
+      doc.querySelector('#aiWelcomeServerLogoX').value = '35';
+      doc.querySelector('#aiWelcomeServerLogoX').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      doc.querySelector('#aiWelcomeServerLogoY').value = '65';
+      doc.querySelector('#aiWelcomeServerLogoY').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      assert.match(doc.querySelector('.ai-welcome-server-logo').getAttribute('style'), /left:35%;top:65%/);
       assert.equal(doc.querySelector('.ai-welcome-image-composite img').getAttribute('src'), 'blob:welcome-design');
       doc.querySelector('#aiWelcomeAvatarPosition').value = 'left';
       doc.querySelector('#aiWelcomeAvatarPosition').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
