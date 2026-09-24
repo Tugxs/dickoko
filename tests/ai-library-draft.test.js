@@ -27,6 +27,7 @@ test('untouched library templates open editable task-specific drafts', () => {
     ['الجيف آواي', 'جيف آواي سريع', 'جهز جيف آواي في #[القناة] لجائزة [الجائزة] لمدة [المدة] دقيقة.', 'giveaway'],
     ['إدارة المجتمع', 'استطلاع رأي', 'جهز استطلاعًا تفاعليًا في #[القناة] عن [السؤال] بخيارات [الخيار الأول] و[الخيار الثاني].', 'poll'],
     ['الرسائل', 'إعلان فعالية', 'جهز إعلان فعالية [الاسم] في #[القناة]', 'event'],
+    ['إدارة المجتمع', 'حدث Discord مجدول', 'أنشئ حدث Discord بعنوان [اسم الحدث]', 'scheduled_event'],
     ['الرسائل', 'رسالة ترحيب تلقائية', 'جهز ترحيبًا تلقائيًا في #[القناة]', 'welcome'],
   ];
   for (const [category, title, prompt, kind] of cases) {
@@ -54,7 +55,7 @@ test('message templates create review cards while retired templates cannot creat
 });
 
 test('every executable library template has a typed review path when sent unchanged', () => {
-  assert.equal(aiPromptLibrary.length, 10);
+  assert.equal(aiPromptLibrary.length, 11);
   assert.equal(new Set(aiPromptLibrary.map(item => `${item.category}/${item.title}`)).size, aiPromptLibrary.length);
   for (const task of aiPromptLibrary) {
     const draft = libraryDraftProposal({ ...task, mode: 'execute' });

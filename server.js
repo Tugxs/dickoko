@@ -13,6 +13,7 @@ import { manageable, problem, connectionState } from "./lib/workspace-domain.js"
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from "./lib/bot-catalog.js";
 import { migrateLocalAi, mountLocalAi, workerAuthorized } from "./lib/local-ai.js";
 import { migrateInteractiveSystems, mountInteractiveSystems, startGiveawayRunner } from "./lib/interactive-systems.js";
+import { mountNativeEvents } from "./lib/native-events.js";
 import { isPublicStaticPath } from "./lib/public-files.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 import { publicError } from "./lib/http-error.js";
@@ -283,7 +284,7 @@ app.use((req, res, next) => {
 });
 const standardJson = express.json({ limit: "512kb", verify: (req, _res, buffer) => { if (req.path === "/api/webhooks/billing") req.rawBody = Buffer.from(buffer); } });
 const interactiveMediaJson = express.json({ limit: "29mb" });
-app.use((req, res, next) => req.method === 'POST' && /^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message)$/.test(req.path) ? interactiveMediaJson(req, res, next) : standardJson(req, res, next));
+app.use((req, res, next) => req.method === 'POST' && /^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create-scheduled-event)$/.test(req.path) ? interactiveMediaJson(req, res, next) : standardJson(req, res, next));
 app.use("/api", (req, res, next) => {
   if (["POST", "PUT", "PATCH"].includes(req.method) && req.is("application/json") && (!req.body || typeof req.body !== "object" || Array.isArray(req.body))) return res.status(400).json({ error: "يجب أن تكون بيانات الطلب JSON object صالحًا" });
   next();
@@ -867,7 +868,7 @@ app.post("/api/projects/:id/bind-guild", requireUser, requireWriteAccess, async 
   } catch (e) { next(e); }
 });
 mountAiBotConnections(app, { pool, requireUser, requireWriteAccess, authorizedGuild, audit });
-app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message)$/, requireUser, async (req, res, next) => { try {
+app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create-scheduled-event)$/, requireUser, async (req, res, next) => { try {
   const item = (await pool.query('SELECT guild_id FROM ai_requests WHERE id=$1 AND user_id=$2', [req.path.split('/')[4], req.user.id])).rows[0];
   if (item) {
     const bot = await botTokenForPublication(pool, item.guild_id);
@@ -878,6 +879,7 @@ app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message)$/, re
 mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: getDiscordBotStatus });
 mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch, requirePlanCapacity });
 mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus: () => requestContext.getStore()?.aiBotId ? { online: true, memberJoins: requestContext.getStore().aiBotMemberJoins } : getDiscordBotStatus() });
+mountNativeEvents(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity });
 app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,archived_at,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY archived_at NULLS FIRST,updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
 app.patch("/api/projects/:id", requireUser, requireWriteAccess, async (req, res, next) => { try { const name = String(req.body.name || '').trim().slice(0, 80); if (name.length < 2) return res.status(400).json({ error: 'اكتب اسمًا من حرفين على الأقل.' }); const { rows } = await pool.query("UPDATE projects SET name=$1,updated_at=NOW() WHERE id=$2 AND user_id=$3 RETURNING id,name,guild_id,deployment_status,archived_at,created_at,updated_at", [name, req.params.id, req.user.id]); if (!rows[0]) return res.status(404).json({ error: 'المشروع غير موجود.' }); await audit(req.user.id, 'project.rename', 'project', rows[0].id, { name }); res.json({ project: rows[0] }); } catch (e) { next(e); } });
@@ -1027,4 +1029,5 @@ migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).th
     return discordBotFetch(pathname, { ...options, headers: { ...options.headers, Authorization: `Bot ${bot.token}` } });
   } });
 }).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
+
 
