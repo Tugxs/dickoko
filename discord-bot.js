@@ -16,6 +16,11 @@ let state = {
   error: null,
   commands: { registered: 0, failed: 0 },
 };
+let botClient = null;
+let retryTimer = null;
+let retryCount = 0;
+let starting = false;
+let memberIntentAllowed = true;
 
 const COMMANDS = [
   BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك'))
@@ -101,34 +106,20 @@ export function getDiscordBotStatus() {
   return { ...state };
 }
 
-async function enableMemberJoinEvents(token) {
-  const endpoint = 'https://discord.com/api/v10/applications/@me';
-  const headers = { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' };
-  try {
-    const current = await fetch(endpoint, { headers, signal: AbortSignal.timeout(12000) });
-    if (!current.ok) throw Error(`application fetch ${current.status}`);
-    const application = await current.json();
-    const flags = Number(application.flags || 0);
-    if ((flags & (1 << 14)) || (flags & (1 << 15))) return true;
-    const enabled = await fetch(endpoint, { method: 'PATCH', headers, body: JSON.stringify({ flags: flags | (1 << 15) }), signal: AbortSignal.timeout(12000) });
-    if (!enabled.ok) throw Error(`member intent update ${enabled.status}`);
-    const updated = await enabled.json();
-    return Boolean(Number(updated.flags || 0) & ((1 << 14) | (1 << 15)));
-  } catch (error) {
-    console.error('Member join intent unavailable; continuing without it:', error.message);
-    return false;
-  }
-}
-
 export async function startDiscordBot({ pool } = {}) {
+  if (starting || botClient?.isReady()) return botClient;
+  starting = true;
   databasePool = pool || null;
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
     console.warn("DISCORD_BOT_TOKEN is missing; Discord bot will stay offline");
+    starting = false;
     return null;
   }
 
-  const memberJoins = await enableMemberJoinEvents(token);
+  // The intent is enabled in the Discord Developer Portal. Do not make a REST
+  // request (or change application flags) before every gateway connection.
+  const memberJoins = memberIntentAllowed;
   state.memberJoins = memberJoins;
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])] });
 
@@ -151,6 +142,9 @@ export async function startDiscordBot({ pool } = {}) {
   });
 
   client.once("ready", async (readyClient) => {
+    botClient = readyClient;
+    retryCount = 0;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     state = {
       configured: true,
       online: true,
@@ -237,16 +231,39 @@ export async function startDiscordBot({ pool } = {}) {
     console.error("Discord client error", error);
     state.error = "client_error";
   });
-  client.on("shardDisconnect", () => { state.online = false; });
+  client.on("shardDisconnect", () => {
+    state.online = false;
+    const disconnected = client;
+    setTimeout(() => {
+      if (botClient !== disconnected || disconnected.isReady()) return;
+      console.warn('Discord gateway did not recover; reconnecting bot');
+      botClient = null;
+      void disconnected.destroy().catch(() => {});
+      void startDiscordBot({ pool: databasePool });
+    }, 90_000).unref();
+  });
   client.on("shardResume", () => { state.online = true; state.error = null; });
 
+  let timeout;
   try {
-    await client.login(token);
+    await Promise.race([
+      client.login(token),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('Discord gateway connection timed out')), 60_000); }),
+    ]);
+    botClient = client;
+    starting = false;
     return client;
   } catch (error) {
     console.error("Discord bot login failed", error);
-    state = { ...state, online: false, error: "login_failed" };
+    await client.destroy().catch(() => {});
+    if (Number(error.code) === 4014 || /disallowed intents|4014/i.test(error.message || '')) memberIntentAllowed = false;
+    state = { ...state, online: false, memberJoins: false, error: "login_failed" };
+    retryCount++;
+    const retryMs = Math.min(300_000, 30_000 * 2 ** Math.min(retryCount - 1, 4));
+    if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; void startDiscordBot({ pool: databasePool }); }, retryMs).unref();
+    starting = false;
     return null;
-  }
+  } finally { clearTimeout(timeout); }
 }
+
 
