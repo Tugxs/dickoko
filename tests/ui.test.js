@@ -364,7 +364,12 @@ test('unreadable guild does not enable editing', async () => {
 });
 test('account offers one direct primary route per guild', async () => {
   const { dom, doc } = await page('servers', fixtureResponse, 'account.html', 'account.js');
-  assert.equal(doc.querySelectorAll('.server-card .btn').length, 2); assert.match(doc.querySelector('.server-card a').href, /studio\?guild=.*#overview/); assert.doesNotMatch(doc.body.textContent, /فتح Studio/); dom.window.close();
+  assert.equal(doc.querySelectorAll('.server-card a.btn.primary').length, 2);
+  assert.equal(doc.querySelectorAll('.server-card button').length, 4);
+  assert.match(doc.querySelector('.server-card a').href, /studio\?guild=.*#overview/);
+  assert.match(doc.body.textContent, /ربط بوت ديسكوكو/);
+  assert.match(doc.body.textContent, /ربط بوتي الخاص/);
+  dom.window.close();
 });
 test('subscription page shows four plans, annual savings and real usage', async () => {
   const { dom, doc } = await page('subscription', fixtureResponse, 'account.html', 'account.js');
@@ -456,5 +461,4 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
-
 

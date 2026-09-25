@@ -40,12 +40,23 @@ test('welcome activation checks only its selected Discord channel', async () => 
   const client = { async query(sql) { return sql.startsWith('SELECT id,guild_id') ? { rows: [item] } : { rows: [] }; }, release() {} };
   const pool = { connect: async () => client };
   const app = { post(path, ...handlers) { if (path.endsWith('/launch-interactive')) launch = handlers.at(-1); } };
-  mountInteractiveSystems(app, { pool, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => true, requirePlanCapacity: async () => {}, getDiscordBotStatus: () => ({ online: true, memberJoins: true }), discordBotFetch: async path => { paths.push(path); return { ok: true, status: 200, data: { id: 'channel', guild_id: 'guild', type: 0 } }; } });
-  const req = { params: { id: 'request' }, user: { id: 'user' }, body: { confirmed: true, channelId: 'channel', title: 'مرحبًا', description: 'أهلًا {member}' }, requestId: 'test' };
+  mountInteractiveSystems(app, { pool, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => true, requirePlanCapacity: async () => {}, getDiscordBotStatus: () => ({ online: true, memberJoins: true }), discordBotFetch: async path => { paths.push(path); return { ok: true, status: 200, data: { id: '123456789012345678', guild_id: 'guild', type: 0 } }; } });
+  const req = { params: { id: 'request' }, user: { id: 'user' }, body: { confirmed: true, channelId: '123456789012345678', title: 'مرحبًا', description: 'أهلًا {member}' }, requestId: 'test' };
   const res = { json(value) { response = value; return this; }, status() { return this; } };
   await launch(req, res, error => { throw error; });
-  assert.deepEqual(paths, ['/channels/channel']);
+  assert.deepEqual(paths, ['/channels/123456789012345678']);
   assert.equal(response.activated, true);
+});
+
+test('incomplete interactive template never queries Discord', async () => {
+  let launch; const paths = []; let statusCode;
+  const item = { id: 'request', guild_id: 'guild', proposal: { interactive: { kind: 'giveaway', prize: '', durationMinutes: 1, winnerCount: 1 } } };
+  const client = { async query(sql) { return sql.startsWith('SELECT id,guild_id') ? { rows: [item] } : { rows: [] }; }, release() {} };
+  const app = { post(path, ...handlers) { if (path.endsWith('/launch-interactive')) launch = handlers.at(-1); } };
+  mountInteractiveSystems(app, { pool: { connect: async () => client }, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => { paths.push('authorization'); return true; }, requirePlanCapacity: async () => {}, discordBotFetch: async path => { paths.push(path); return { ok: true }; } });
+  await launch({ params: { id: 'request' }, user: { id: 'user' }, body: { confirmed: true } }, { status(code) { statusCode = code; return this; }, json() {} }, error => { throw error; });
+  assert.equal(statusCode, 400);
+  assert.deepEqual(paths, []);
 });
 
 test('only support role or server manager can claim a ticket', async () => {
@@ -295,4 +306,3 @@ test('giveaway retries stop after five consecutive temporary failures', async ()
   assert.equal(giveaway.status, 'paused');
   assert.equal(giveaway.failure_count, 5);
 });
-

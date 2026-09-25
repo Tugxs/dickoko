@@ -2,7 +2,7 @@ const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const planNames = { free: 'Free', trial: 'Free', starter: 'Starter', growth: 'Growth', business: 'Business', complete: 'Business' };
 const usageNames = { servers: 'السيرفرات المرتبطة', changeSetsPerMonth: 'خطط التغييرات', scheduledMessages: 'الرسائل المجدولة', customTemplates: 'القوالب الخاصة', customBots: 'تصاميم البوتات' };
-let account; let interval = 'monthly'; let couponCode = ''; 
+let account; let interval = 'monthly'; let couponCode = '';
 function target() { return ['servers', 'create', 'projects', 'subscription'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'servers'; }
 async function api(path, options) { const response = await fetch(path, { credentials: 'include', cache: 'no-store', ...options }); const data = await response.json(); if (!response.ok) throw Object.assign(Error(data.error || 'تعذر تحميل البيانات.'), { status: response.status, data }); return data; }
 async function post(path, body) { const { token } = await api('/api/csrf-token'); return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token }, body: JSON.stringify(body) }); }
@@ -12,7 +12,70 @@ function renderServers() {
   const linked = account.servers.filter(guild => guild.connection?.install_status === 'installed').length;
   return `<div class="page-head"><div><span class="eyebrow">أهلًا، ${esc(account.user.displayName || account.user.username)}</span><h1>مجتمعاتك، في مكان واحد.</h1><p>اختر السيرفر. الباقي صار أقرب.</p></div><a class="btn primary" href="#create">＋ تجهيز سيرفر جديد</a></div>${account.discordUnavailable ? '<div class="notice info"><div><b>تعذر التحقق من Discord مؤقتًا</b><p>نعرض سيرفراتك المرتبطة المحفوظة. قد تتأخر بعض أدوات الإدارة حتى يعود الاتصال؛ لن ننفذ تغييرًا دون التحقق من صلاحياتك.</p></div><button class="btn secondary" id="retryDiscord">إعادة التحقق</button></div>' : ''}${account.access?.mode === 'read_only' ? '<div class="notice error"><div><b>الحساب في وضع القراءة فقط</b><p>بياناتك محفوظة. حدّث الدفع لاستئناف التغييرات.</p></div><a class="btn secondary" href="#subscription">إدارة الاشتراك</a></div>' : ''}<section class="hero"><div><span class="eyebrow">مساحة عملك</span><h2>ابدأ من مجتمعك.</h2><p>من ترتيب القنوات إلى متابعة النشيطين، كل سيرفر له مساحة واضحة وتغييرات تمر بمراجعتك.</p></div><div class="hero-art" aria-hidden="true"><span>◈</span></div></section><div class="section-title"><h3>سيرفراتي <span class="badge purple">${account.servers.length}</span></h3><small>${linked} مرتبطة · ${account.servers.length - linked} تحتاج تحققًا أو ربطًا</small></div><div class="server-grid">${account.servers.map(guild => { const ready = guild.connection?.install_status === 'installed'; return `<article class="server-card"><div class="server-title"><span class="server-image">${guild.icon ? `<img src="https://cdn.discordapp.com/icons/${encodeURIComponent(guild.id)}/${encodeURIComponent(guild.icon)}.png?size=96" alt="">` : esc(guild.name.slice(0, 1))}</span><div class="row-main"><h3>${esc(guild.name)}</h3><small>${account.discordUnavailable ? 'التحقق من الصلاحيات مؤجل' : guild.owner ? 'أنت مالك السيرفر' : 'لديك صلاحية الإدارة'}</small></div><span class="badge ${ready ? 'good' : 'warn'}">${ready ? 'البوت مثبت' : 'أكمل الربط'}</span></div><p class="form-note">${ready ? 'افتح مساحة سيرفرك للتحقق من حالته وإدارته.' : 'أضف Diskoko وتحقق من الاتصال في خطوات واضحة.'}</p><a class="btn ${ready ? 'primary' : 'secondary'}" href="/studio?guild=${encodeURIComponent(guild.id)}#${ready ? 'overview' : 'settings'}">${ready ? 'فتح لوحة السيرفر' : 'إكمال الربط'} ←</a></article>`; }).join('') || '<div class="panel"><div class="empty"><h3>لم نجد سيرفرات قابلة للإدارة</h3><p>تأكد من الحساب وصلاحية إدارة السيرفر، أو أنشئ سيرفرًا جديدًا في Discord.</p><a class="btn primary" href="#create">ابدأ من هنا</a></div></div>'}</div>`;
 }
-function renderCreate() { return `<div class="page-head"><div><span class="eyebrow">بداية جديدة</span><h1>من فكرة، إلى مجتمع.</h1><p>ثلاث خطوات فقط، وسنحفظ تقدمك تلقائيًا.</p></div><a class="btn secondary" href="#servers">سيرفراتي ←</a></div><div class="panel"><div class="row"><span class="row-icon">1</span><div class="row-main"><b>أنشئ السيرفر في Discord</b><small>اختر إضافة سيرفر ثم إنشاء سيرفر خاص بك.</small></div><a class="btn primary" href="https://discord.com/app" target="_blank" rel="noopener">فتح Discord ↗</a></div><div class="row"><span class="row-icon">2</span><div class="row-main"><b>ارجع وحدّث القائمة</b><small>سنعرض السيرفرات التي تملكها أو تديرها.</small></div><button class="btn secondary" id="syncServers">تحديث السيرفرات</button></div><div class="row"><span class="row-icon">3</span><div class="row-main"><b>اربط Diskoko واختر قالبًا</b><small>نفحص الصلاحيات ثم نعرض كل تغيير قبل تطبيقه.</small></div><a class="btn secondary" href="#servers">اختيار السيرفر</a></div></div><div class="notice info"><div><b>صلاحيات محددة ومراجعة قبل التنفيذ</b><p>لا نطلب Administrator، ولن نطبّق أي تغيير قبل موافقتك.</p></div></div>`; }
+function bindServerConnections() {
+  if (target() !== 'servers') return;
+  document.querySelectorAll('.server-grid > .server-card').forEach((card, index) => {
+    const guild = account.servers[index];
+    if (!guild) return;
+    const linked = guild.linkedBot;
+    const badge = card.querySelector('.badge');
+    const description = card.querySelector('.form-note');
+    const mainLink = card.querySelector('a.btn');
+    if (linked) {
+      const waiting = linked.retryAt && new Date(linked.retryAt).getTime() > Date.now();
+      badge.textContent = waiting ? 'بانتظار Discord' : 'بوتك مرتبط';
+      badge.className = `badge ${waiting ? 'warn' : 'good'}`;
+      description.textContent = waiting ? `بوت التنفيذ ${linked.name} محفوظ، وينتظر انتهاء مهلة Discord حتى ${new Date(linked.retryAt).toLocaleString('ar-SA')}.` : `بوت التنفيذ المختار: ${linked.name}. افتح السيرفر لمراجعة الاتصال والقوالب.`;
+      mainLink.textContent = 'فتح لوحة السيرفر ←';
+      mainLink.className = 'btn primary';
+      mainLink.href = `/studio?guild=${encodeURIComponent(guild.id)}#overview`;
+    } else if (!guild.connection || guild.connection.install_status !== 'installed') {
+      description.textContent = 'اختر بوت ديسكوكو أو اربط بوتك الخاص. يمكنك تغيير اختيارك من إعدادات السيرفر.';
+    }
+    const actions = document.createElement('div');
+    actions.className = 'actions server-connect-actions';
+    actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;width:100%;margin-top:8px';
+    const diskoko = document.createElement('button');
+    diskoko.type = 'button'; diskoko.className = 'btn secondary'; diskoko.textContent = 'ربط بوت ديسكوكو';
+    diskoko.onclick = async () => {
+      diskoko.disabled = true;
+      try { const result = await api(`/api/guilds/${encodeURIComponent(guild.id)}/install-url`); location.assign(result.url); }
+      catch (error) { window.alert(error.message); diskoko.disabled = false; }
+    };
+    const own = document.createElement('button');
+    own.type = 'button'; own.className = 'btn secondary'; own.textContent = linked ? 'تحديث ربط بوتي' : 'ربط بوتي الخاص';
+    own.onclick = () => openOwnBotDialog(guild);
+    actions.append(diskoko, own);
+    card.append(actions);
+  });
+}
+function openOwnBotDialog(guild) {
+  const dialog = document.createElement('dialog');
+  dialog.style.padding = '24px';
+  dialog.innerHTML = `<button class="dialog-close" type="button" aria-label="إغلاق">×</button><h2>ربط بوتك الخاص</h2><p>سيصبح بوت التنفيذ في ${esc(guild.name)} للقوالب وإدارة السيرفر. أضفه إلى السيرفر أولًا.</p><form id="accountBotForm"><label>رمز البوت<input type="password" autocomplete="off" spellcheck="false" required></label><p class="form-note">يُحفظ الرمز مشفرًا. لا تضعه في المحادثة.</p><p id="accountBotError" role="alert" hidden></p><div class="actions"><button class="btn primary" type="submit">تحقق واربط</button><button class="btn secondary" type="button" id="accountBotCancel">إلغاء</button></div></form><p><a href="/ai-bot-guide.html" target="_blank" rel="noopener noreferrer">شرح إنشاء البوت وإضافته ↗</a></p>`;
+  document.body.append(dialog);
+  const close = () => { dialog.close(); dialog.remove(); };
+  dialog.querySelector('.dialog-close').onclick = close;
+  dialog.querySelector('#accountBotCancel').onclick = close;
+  dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
+  dialog.querySelector('form').onsubmit = async event => {
+    event.preventDefault();
+    const button = dialog.querySelector('button[type="submit"]'); button.disabled = true;
+    const errorBox = dialog.querySelector('#accountBotError'); errorBox.hidden = true;
+    try {
+      await post('/api/ai/bot-connection', { guildId: guild.id, token: dialog.querySelector('input').value });
+      close(); await load();
+    } catch (error) {
+      errorBox.textContent = error.message;
+      if (error.data?.inviteUrl?.startsWith('https://discord.com/oauth2/authorize?')) {
+        const link = document.createElement('a'); link.href = error.data.inviteUrl; link.textContent = 'أضف البوت إلى السيرفر ↗'; link.target = '_blank'; link.rel = 'noopener noreferrer'; errorBox.append(document.createElement('br'), link);
+      }
+      errorBox.hidden = false; button.disabled = false;
+    }
+  };
+  dialog.showModal();
+}
+function renderCreate() { return `<div class="page-head"><div><span class="eyebrow">بداية جديدة</span><h1>من فكرة، إلى مجتمع.</h1><p>ثلاث خطوات فقط، وسنحفظ تقدمك تلقائيًا.</p></div><a class="btn secondary" href="#servers">سيرفراتي ←</a></div><div class="panel"><div class="row"><span class="row-icon">1</span><div class="row-main"><b>أنشئ السيرفر في Discord</b><small>اختر إضافة سيرفر ثم إنشاء سيرفر خاص بك.</small></div><a class="btn primary" href="https://discord.com/app" target="_blank" rel="noopener">فتح Discord ↗</a></div><div class="row"><span class="row-icon">2</span><div class="row-main"><b>ارجع وحدّث القائمة</b><small>سنعرض السيرفرات التي تملكها أو تديرها.</small></div><button class="btn secondary" id="syncServers">تحديث السيرفرات</button></div><div class="row"><span class="row-icon">3</span><div class="row-main"><b>اربط بوت ديسكوكو أو بوتك الخاص</b><small>نفحص الصلاحيات ثم نعرض كل تغيير قبل تطبيقه.</small></div><a class="btn secondary" href="#servers">اختيار السيرفر</a></div></div><div class="notice info"><div><b>صلاحيات محددة ومراجعة قبل التنفيذ</b><p>لا نطلب Administrator، ولن نطبّق أي تغيير قبل موافقتك.</p></div></div>`; }
 function renderProjects() {
   const projects = account.projects || []; const active = projects.filter(item => !item.archived_at); const archived = projects.filter(item => item.archived_at);
   const serverOptions = selected => `<option value="">بدون سيرفر</option>${account.servers.map(guild => `<option value="${esc(guild.id)}" ${guild.id === selected ? 'selected' : ''}>${esc(guild.name)}</option>`).join('')}`;
@@ -30,6 +93,7 @@ function renderSubscription() {
   return `<div class="page-head"><div><span class="eyebrow">الاشتراك والاستخدام</span><h1>كل شيء واضح قبل أن تصل إلى الحد.</h1><p>تابع الاستهلاك، قارن الخطط، واحتفظ ببياناتك حتى عند تعثر الدفع.</p></div><div class="billing-toggle"><button data-interval="monthly" class="${interval === 'monthly' ? 'active' : ''}">شهري</button><button data-interval="annual" class="${interval === 'annual' ? 'active' : ''}">سنوي <em>شهران مجانًا</em></button></div></div>${account.access?.reason === 'payment_grace' ? `<div class="notice"><div><b>فترة سماح للدفع</b><p>الخدمة تعمل حتى ${new Date(account.access.graceUntil).toLocaleDateString('ar-SA')}. حدّث الدفع قبلها لتجنب وضع القراءة فقط.</p></div></div>` : ''}${alertItem ? `<div class="notice ${alertItem.level === 'blocked' ? 'error' : ''}"><div><b>${esc(usageNames[alertItem.key])}: ${alertItem.percent}٪</b><p>${esc(alertItem.message)}</p></div></div>` : ''}<section class="hero billing-hero"><div><span class="eyebrow">خطتك الحالية</span><h2>${esc(planNames[current] || current)}</h2><p>${esc(statusNames[account.plan.status] || account.plan.status)}${account.plan.current_period_end ? ` · التجديد ${new Date(account.plan.current_period_end).toLocaleDateString('ar-SA')}` : ''}${account.plan.cancel_at_period_end ? ' · ستتوقف عند نهاية الفترة' : ''}</p></div><span class="badge ${account.access?.mode === 'read_only' ? 'bad' : 'good'}">${account.access?.mode === 'read_only' ? 'قراءة فقط' : 'جاهز للعمل'}</span></section><div class="metrics billing-usage">${usageCards}</div><div class="section-title"><h3>اختر الخطة المناسبة</h3><small>الأسعار بالريال السعودي · السنوي يعادل شهرين مجانًا</small></div>${account.upgradeRequest ? `<div class="notice info"><div><b>طلب ترقية قيد التجهيز</b><p>${esc(planNames[account.upgradeRequest.plan])} · ${account.upgradeRequest.billing_interval === 'annual' ? 'سنوي' : 'شهري'}${account.upgradeRequest.coupon_code ? ` · كوبون ${esc(account.upgradeRequest.coupon_code)}` : ''}${account.upgradeRequest.total != null ? ` · المبلغ التقديري ${(account.upgradeRequest.total / 100).toLocaleString('ar-SA')} ر.س` : ''}. سنكمل الدفع بعد ربط البوابة.</p></div></div>` : ''}<div class="panel coupon-panel"><h3>لديك كوبون؟</h3><p>أدخل الرمز قبل اختيار الباقة. سنعرض خصمًا تقديريًا، ويُعاد التحقق منه عند تفعيل الدفع.</p><div class="coupon-row"><input id="couponCode" aria-label="رمز الكوبون" placeholder="رمز الكوبون" value="${esc(couponCode)}" maxlength="32"><small id="couponMessage">سيظهر السعر والخصم في صفحة المراجعة.</small></div></div><div class="billing-grid">${account.plans.map(plan => planCard(plan, current)).join('')}</div><div class="panel invoices"><div class="panel-head"><div><h3>الفواتير</h3><small>آخر 12 فاتورة</small></div></div>${account.invoices.length ? `<div class="table-wrap"><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الحالة</th><th></th></tr></thead><tbody>${account.invoices.map(invoice => `<tr><td>${new Date(invoice.issued_at).toLocaleDateString('ar-SA')}</td><td>${(invoice.amount / 100).toLocaleString('ar-SA')} ${esc(invoice.currency)}</td><td>${esc(invoice.status)}</td><td>${invoice.invoice_url ? `<a class="btn small secondary" href="${esc(invoice.invoice_url)}" target="_blank" rel="noopener">الفاتورة ↗</a>` : '—'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty"><h3>لا توجد فواتير بعد</h3><p>ستظهر الفواتير هنا بعد أول عملية دفع.</p></div>'}</div>`;
 }
 function bindView() {
+  bindServerConnections();
   $('#retryDiscord')?.addEventListener('click', load);
   $('#syncServers')?.addEventListener('click', async () => { await load(); location.hash = 'servers'; });
   document.querySelectorAll('.save-project').forEach(button => button.onclick = async () => { const card = button.closest('[data-project]'); button.disabled = true; try { await mutate(`/api/projects/${card.dataset.project}`, 'PATCH', { name: card.querySelector('input').value }); await load(); } catch (error) { window.alert(error.message); button.disabled = false; } });
