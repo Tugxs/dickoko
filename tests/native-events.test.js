@@ -29,6 +29,8 @@ test('native event refuses wrong channel type, missing location and invalid date
 test('native event cover accepts image bytes and rejects forged image type', () => {
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
   assert.match(nativeEventCover({ mime: 'image/png', base64: png.toString('base64') }), /^data:image\/png;base64,/);
+  const gif = Buffer.from('GIF89a\0\0');
+  assert.match(nativeEventCover({ mime: 'image/gif', base64: gif.toString('base64') }), /^data:image\/gif;base64,/);
+  assert.throws(() => nativeEventCover({ mime: 'image/gif', base64: Buffer.from('not a gif').toString('base64') }), /غير صالحة/);
   assert.throws(() => nativeEventCover({ mime: 'image/png', base64: Buffer.from('not a png').toString('base64') }), /غير صالحة/);
 });
-

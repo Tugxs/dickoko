@@ -22,6 +22,18 @@ test('automatic welcome sends one composed design with the joining member avatar
   } finally { global.fetch = originalFetch; }
 });
 
+test('automatic welcome keeps an animated GIF banner and member avatar in the card', async () => {
+  const gif = Buffer.from('GIF89a\0\0');
+  const sends = [];
+  const member = { id: 'member', displayName: 'ضيف', user: { username: 'ضيف', bot: false }, guild: { id: 'official', name: 'ديسكوكو', channels: { fetch: async () => ({ isTextBased: () => true, send: async payload => sends.push(payload) }) } }, displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/member/avatar.png' };
+  const pool = { query: async () => ({ rows: [{ channel_id: 'welcome', title: 'مرحبًا', description: 'أهلًا {member}', color: 0x8b5cf6, banner: { mime: 'image/gif', base64: gif.toString('base64') }, avatar_position: 'right', banner_position: 'above', composite: false }] }) };
+  assert.equal(await sendWelcomeCard(member, pool), true);
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].embeds[0].image.url, 'attachment://welcome.gif');
+  assert.match(sends[0].embeds[1].thumbnail.url, /avatars\/member/);
+  assert.deepEqual(sends[0].files[0].attachment, gif);
+});
+
 test('only support role or server manager can claim a ticket', async () => {
   const replies = [];
   let claims = 0;
@@ -132,6 +144,17 @@ test('poll question and option images attach to the matching embeds', () => {
   assert.equal(result.body.get('files[1]').type, 'image/png');
   const logo = pollMessageOptions(message, png, [null, null], 'logo');
   assert.equal(JSON.parse(logo.body.get('payload_json')).embeds[0].thumbnail.url, 'attachment://poll-0.png');
+});
+
+test('poll accepts GIF for the question and individual options without flattening animation', () => {
+  const gif = { mime: 'image/gif', base64: Buffer.from('GIF89a\0\0').toString('base64') };
+  const message = { embeds: [{ title: 'السؤال' }, { description: 'الأول' }, { description: 'الثاني' }], components: [] };
+  const result = pollMessageOptions(message, gif, [gif, null]);
+  const payload = JSON.parse(result.body.get('payload_json'));
+  assert.equal(payload.embeds[0].image.url, 'attachment://poll-0.gif');
+  assert.equal(payload.embeds[1].thumbnail.url, 'attachment://poll-1.gif');
+  assert.equal(result.body.get('files[0]').type, 'image/gif');
+  assert.equal(result.body.get('files[1]').type, 'image/gif');
 });
 
 test('event sign-up edits the event card even when an image embed comes first', async () => {

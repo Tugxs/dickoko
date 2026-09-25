@@ -276,6 +276,31 @@ test('poll, event and welcome open distinct live review cards', async () => {
     dom.window.close();
   }
 });
+test('GIF is selectable throughout library reviews and welcome preserves it as a banner', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const task = aiPromptLibrary.find(item => item.kind === 'welcome');
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: task.title, updated_at: '2026-09-23T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: task.prompt, answer: 'بطاقة مراجعة', status: 'completed', library_mode: 'execute', library_title: task.title, library_category: task.category, proposal: { interactive: { kind: 'welcome', channel: 'general', title: 'ترحيب', description: 'مرحبًا {member}' }, draft: true } }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc } = await page('assistant', response);
+  assert.match(doc.querySelector('#aiFile').accept, /image\/gif/);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  doc.querySelector('[data-ai-interactive]').click();
+  assert.match(doc.querySelector('#aiSpecialImage').accept, /image\/gif/);
+  dom.window.URL.createObjectURL = () => 'blob:welcome-gif';
+  dom.window.URL.revokeObjectURL = () => {};
+  Object.defineProperty(doc.querySelector('#aiSpecialImage'), 'files', { value: [new dom.window.File(['GIF89a\0\0'], 'welcome.gif', { type: 'image/gif' })] });
+  doc.querySelector('#aiWelcomeComposite').checked = true;
+  doc.querySelector('#aiSpecialImage').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelector('#aiWelcomeComposite').checked, false);
+  assert.equal(doc.querySelector('#aiWelcomeComposite').disabled, true);
+  assert.equal(doc.querySelector('#aiSpecialPreviewImage img').getAttribute('src'), 'blob:welcome-gif');
+  assert.equal(doc.querySelector('#aiWelcomePreviewAvatar').hidden, false);
+  dom.window.close();
+});
 test('native Discord event opens location-aware editor with live preview', async () => {
   const conversationId = '11111111-1111-4111-8111-111111111111';
   const task = aiPromptLibrary.find(item => item.kind === 'scheduled_event');
@@ -413,5 +438,4 @@ test('admin audit view shows the actor, action and request ID', async () => {
   assert.match(dom.window.document.querySelector('#content').textContent, /req-123/);
   dom.window.close();
 });
-
 
