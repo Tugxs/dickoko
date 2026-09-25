@@ -1,6 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { READY_TEMPLATES, normalizeReadyDefinition, readyTemplateDiff } from '../lib/ready-templates.js';
+import { READY_TEMPLATES, normalizeReadyDefinition, readyTemplateDiff, readyUsageUnits } from '../lib/ready-templates.js';
+
+test('ready template usage counts categories, channels and enabled systems without counting roles', () => {
+  const arabic = normalizeReadyDefinition(READY_TEMPLATES[0].definition);
+  assert.equal(arabic.categories.length, 7);
+  assert.equal(arabic.categories.flatMap(group => group.channels).length, 23);
+  assert.equal(readyUsageUnits(arabic), 33);
+  const extraRole = structuredClone(arabic); extraRole.roles.push({ key: 'extra-role', name: 'Extra', preset: 'member', color: 0 });
+  assert.equal(readyUsageUnits(extraRole), 33);
+  const streamer = normalizeReadyDefinition(READY_TEMPLATES[1].definition);
+  assert.equal(readyUsageUnits(streamer), 44);
+});
+
+test('welcome composite and support artwork are retained only with valid settings', () => {
+  const definition = structuredClone(READY_TEMPLATES[0].definition);
+  definition.features.welcome.composite = true;
+  definition.features.welcome.avatarPosition = 'center';
+  assert.throws(() => normalizeReadyDefinition(definition), /ارفع تصميم الترحيب/);
+  definition.features.welcome.composite = false;
+  definition.features.ticket.color = '#12aabb';
+  definition.features.ticket.buttonLabel = 'اطلب المساعدة';
+  assert.equal(normalizeReadyDefinition(definition).features.ticket.buttonLabel, 'اطلب المساعدة');
+});
 
 test('the two catalog templates have valid editable structure and no administrator grants', () => {
   assert.equal(READY_TEMPLATES.length, 2);

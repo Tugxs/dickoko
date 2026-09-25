@@ -381,7 +381,7 @@ async function discordBotFetch(pathname, options = {}) {
   const preflightError = validateDiscordWrite(pathname, options);
   if (preflightError) return { ok: false, status: 400, data: { message: preflightError } };
   const context = requestContext.getStore();
-  if (context?.selectedBotOffline) return { ok: false, status: 503, data: { message: 'بوت السيرفر المرتبط غير متصل الآن' } };
+  if (context?.selectedBotOffline && !options.headers?.Authorization) return { ok: false, status: 503, data: { message: 'بوت السيرفر المرتبط غير متصل الآن' } };
   const guildId = /^\/guilds\/(\d{17,20})(?:\/|\?|$)/.exec(pathname)?.[1];
   let selectedToken = null;
   if (guildId && !context?.aiBotToken && !context?.selectedBotId) {
@@ -519,7 +519,7 @@ async function planCapacity(user, kind, db = pool) {
     return { used: rows[0].count, limit: limits.scheduledMessages };
   }
   if (kind === "changeSetsPerMonth") {
-    const { rows } = await db.query("SELECT ((SELECT COUNT(*) FROM change_sets WHERE user_id=$1 AND status='succeeded' AND updated_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ai_requests WHERE user_id=$1 AND (sent_message_id IS NOT NULL OR interactive_message_id IS NOT NULL) AND published_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ready_template_runs WHERE user_id=$1 AND status IN ('running','succeeded') AND updated_at >= date_trunc('month', NOW())))::int AS count", [user.id]);
+    const { rows } = await db.query("SELECT ((SELECT COUNT(*) FROM change_sets WHERE user_id=$1 AND status='succeeded' AND updated_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ai_requests WHERE user_id=$1 AND (sent_message_id IS NOT NULL OR interactive_message_id IS NOT NULL) AND published_at >= date_trunc('month', NOW())) + (SELECT COALESCE(SUM(usage_units),0) FROM ready_template_runs WHERE user_id=$1 AND status IN ('running','succeeded') AND updated_at >= date_trunc('month', NOW())))::int AS count", [user.id]);
     return { used: rows[0].count, limit: limits.changeSetsPerMonth };
   }
   return { used: 0, limit: 0 };
@@ -957,7 +957,7 @@ app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create
   next();
 } catch (error) { next(error); } });
 mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: executionBotStatus });
-mountReadyTemplates(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, botStatus: executionBotStatus });
+mountReadyTemplates(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, botStatus: getDiscordBotStatus });
 mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch, requirePlanCapacity });
 mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus: executionBotStatus });
 mountNativeEvents(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity });

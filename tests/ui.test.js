@@ -54,6 +54,11 @@ test('ready templates open as an independent section with both sources and a Dis
   doc.querySelector('[data-ready-choose="server-my-arabic"]').click();
   assert.ok(doc.querySelector('#readyPreview .ready-discord'));
   assert.ok(doc.querySelector('input[name="readyMode"][value="replace"]'));
+  assert.equal(doc.querySelectorAll('#readyPreview .ready-discord-category').length, 7);
+  assert.equal(doc.querySelectorAll('#readyPreview .ready-discord-channel').length, 23);
+  assert.match(doc.querySelector('.ready-unit-note').textContent, /٣٣/);
+  assert.ok(doc.querySelector('input[name="readyExecutor"][value="custom"]'));
+  assert.ok(doc.querySelector('#readyTicketImage'));
   dom.window.close();
 });
 test('community alerts show actionable paused giveaways and failed schedules', async () => {
