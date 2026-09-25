@@ -20,3 +20,9 @@ test('routed logs combine multiple sources, deduplicate destinations and keep ot
   assert.deepEqual(activityLogDestinations(config, 'message_delete', 'voice'), ['voice-logs']);
   assert.deepEqual(activityLogDestinations(config, 'message_delete', 'other'), []);
 });
+
+test('commands follow their source channel route only when enabled', () => {
+  const config = { mode: 'routed', events: ['command'], routes: [{ sourceIds: ['general', 'memes'], targetId: 'chat-logs' }] };
+  assert.deepEqual(activityLogDestinations(config, 'command', 'memes'), ['chat-logs']);
+  assert.deepEqual(activityLogDestinations(config, 'message_create', 'memes'), []);
+});

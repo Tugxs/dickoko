@@ -181,7 +181,7 @@ export async function startDiscordBot({ pool } = {}) {
       return true;
     } },
   });
-  if (databasePool) registerGuildActivityLogs(client, databasePool);
+  const activityLogger = databasePool ? registerGuildActivityLogs(client, databasePool) : null;
 
   client.on(Events.GuildMemberAdd, member => {
     if (databasePool) void (async () => {
@@ -253,6 +253,7 @@ export async function startDiscordBot({ pool } = {}) {
     }
     if (!interaction.isChatInputCommand() || interaction.commandName !== "diskoko") return;
     const subcommand = interaction.options.getSubcommand();
+    if (interaction.guildId) void activityLogger?.recordCommand(interaction.guildId, interaction.channelId, interaction.user.id, `diskoko-${subcommand}`);
     const settings = await guildSettings(interaction.guildId);
     if (subcommand === 'claim') {
       if (!settings.enabled) return interaction.reply({ content: 'البوت غير مفعّل لهذا السيرفر.', ephemeral: true });
@@ -287,7 +288,7 @@ export async function startDiscordBot({ pool } = {}) {
       void recordCommand(interaction.guildId, subcommand, true);
       if (settings.log_channel_id) {
         const route = (await databasePool.query('SELECT publishing_bot_id FROM guild_activity_log_routes WHERE guild_id=$1', [interaction.guildId])).rows[0];
-        if (!route || route.publishing_bot_id === client.user.id) {
+        if (!route) {
           const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null);
           if (channel?.guildId === interaction.guildId && channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {});
         }
