@@ -121,7 +121,15 @@ export async function startDiscordBot({ pool } = {}) {
   // request (or change application flags) before every gateway connection.
   const memberJoins = memberIntentAllowed;
   state.memberJoins = memberJoins;
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])] });
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])],
+    // A 429 without Retry-After can otherwise be retried immediately by the
+    // REST client. Let our bounded reconnect schedule handle it instead.
+    rest: { rejectOnRateLimit: (limit) => {
+      console.warn('Discord bot REST rate limited', { route: limit.route, scope: limit.scope, retryAfterMs: limit.retryAfter });
+      return true;
+    } },
+  });
 
   client.on(Events.GuildMemberAdd, member => {
     if (databasePool) void (async () => {
@@ -254,12 +262,16 @@ export async function startDiscordBot({ pool } = {}) {
     starting = false;
     return client;
   } catch (error) {
-    console.error("Discord bot login failed", error);
+    console.error("Discord bot login failed", error.name === 'RateLimitError'
+      ? { name: error.name, route: error.route, scope: error.scope, retryAfterMs: error.retryAfter }
+      : error);
     await client.destroy().catch(() => {});
     if (Number(error.code) === 4014 || /disallowed intents|4014/i.test(error.message || '')) memberIntentAllowed = false;
-    state = { ...state, online: false, memberJoins: false, error: "login_failed" };
+    state = { ...state, online: false, memberJoins: false, error: error.name === 'RateLimitError' ? 'rate_limited' : 'login_failed' };
     retryCount++;
-    const retryMs = Math.min(300_000, 30_000 * 2 ** Math.min(retryCount - 1, 4));
+    const backoffMs = Math.min(300_000, 60_000 * 2 ** Math.min(retryCount - 1, 3));
+    const retryMs = Math.max(backoffMs, Math.min(3_600_000, Number(error.retryAfter) || 0) + 1_000);
+    console.warn(`Discord bot reconnect scheduled in ${Math.ceil(retryMs / 1_000)}s`);
     if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; void startDiscordBot({ pool: databasePool }); }, retryMs).unref();
     starting = false;
     return null;
