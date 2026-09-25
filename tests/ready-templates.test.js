@@ -87,3 +87,16 @@ test('installation exposes an existing Administrator role instead of claiming to
   assert.equal(role.action, 'reuse');
   assert.equal(role.hasAdministrator, true);
 });
+test('multiple log rules accept shared destinations and count one unit per rule', () => {
+  const definition = structuredClone(READY_TEMPLATES[0].definition);
+  const channels = definition.categories.flatMap(group => group.channels).filter(channel => channel.type === 0);
+  definition.features.logs = { enabled: true, mode: 'routed', events: ['message_create', 'message_delete'], routes: [
+    { key: 'chat-logs', sourceKeys: [channels[0].key, channels[1].key], targetKey: channels[2].key },
+    { key: 'other-logs', sourceKeys: [channels[3].key], targetKey: channels[2].key },
+  ] };
+  const normalized = normalizeReadyDefinition(definition);
+  assert.equal(normalized.features.logs.routes.length, 2);
+  assert.equal(readyUsageUnits(normalized), 34);
+  definition.features.logs.routes[1].sourceKeys = [channels[2].key];
+  assert.throws(() => normalizeReadyDefinition(definition), /مصادر اللوق/);
+});

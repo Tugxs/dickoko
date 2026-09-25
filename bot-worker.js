@@ -2,6 +2,7 @@ import pg from 'pg';
 import { getDiscordBotStatus, startDiscordBot, stopDiscordBot } from './discord-bot.js';
 import { migrateAiBotConnections, restoreAiBots, stopAllAiBots, syncAiBots } from './lib/ai-bot-connections.js';
 import { claimDiscordJob, executeDiscordJob, migrateDiscordJobQueue, recoverDiscordJobQueue } from './lib/discord-job-queue.js';
+import { migrateGuildActivityLogs } from './lib/guild-activity-logs.js';
 
 const required = ['DATABASE_URL', 'ENCRYPTION_KEY', 'DISCORD_BOT_TOKEN'];
 const missing = required.filter(name => !process.env[name]);
@@ -58,6 +59,7 @@ process.once('SIGINT', () => void shutdown());
 
 await migrateAiBotConnections(pool);
 await migrateDiscordJobQueue(pool);
+await migrateGuildActivityLogs(pool);
 await recoverDiscordJobQueue(pool);
 await startDiscordBot({ pool });
 await restoreAiBots(pool);

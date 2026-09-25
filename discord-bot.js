@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { ActivityType, Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
 import { claimSupportTicket, handleInteractiveButton, reopenSupportTicket, repairLegacyTicketControls, sendWelcomeCard } from './lib/interactive-systems.js';
 import { waitForGatewayLoginSlot } from './lib/gateway-login-gate.js';
+import { registerGuildActivityLogs } from './lib/guild-activity-logs.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -171,7 +172,8 @@ export async function startDiscordBot({ pool } = {}) {
   const memberJoins = memberIntentAllowed;
   state.memberJoins = memberJoins;
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates, ...(memberJoins ? [GatewayIntentBits.GuildMembers] : [])],
+    partials: [Partials.Message, Partials.Channel],
     // A 429 without Retry-After can otherwise be retried immediately by the
     // REST client. Let our bounded reconnect schedule handle it instead.
     rest: { rejectOnRateLimit: (limit) => {
@@ -179,6 +181,7 @@ export async function startDiscordBot({ pool } = {}) {
       return true;
     } },
   });
+  if (databasePool) registerGuildActivityLogs(client, databasePool);
 
   client.on(Events.GuildMemberAdd, member => {
     if (databasePool) void (async () => {
@@ -282,7 +285,13 @@ export async function startDiscordBot({ pool } = {}) {
     try {
       await interaction.reply({ content: replies[subcommand] || replies.help, ephemeral: true });
       void recordCommand(interaction.guildId, subcommand, true);
-      if (settings.log_channel_id) { const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null); if (channel?.guildId === interaction.guildId && channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {}); }
+      if (settings.log_channel_id) {
+        const route = (await databasePool.query('SELECT publishing_bot_id FROM guild_activity_log_routes WHERE guild_id=$1', [interaction.guildId])).rows[0];
+        if (!route || route.publishing_bot_id === client.user.id) {
+          const channel = await client.channels.fetch(settings.log_channel_id).catch(() => null);
+          if (channel?.guildId === interaction.guildId && channel?.isTextBased()) await channel.send({ content: `Diskoko command executed: /diskoko ${subcommand}`, allowedMentions: { parse: [] } }).catch(() => {});
+        }
+      }
     } catch (error) { void recordCommand(interaction.guildId, subcommand, false); console.error("Discord interaction reply failed", error); }
   });
   client.on("error", (error) => {
