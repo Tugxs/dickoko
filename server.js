@@ -7,7 +7,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
 import nodemailer from "nodemailer";
-import { getDiscordBotStatus, startDiscordBot } from "./discord-bot.js";
+import { getDiscordBotStatus, setExternalBotStatus, startDiscordBot } from "./discord-bot.js";
 import { mountWorkspace, migrateWorkspace, startScheduleRunner } from "./lib/workspace-api.js";
 import { manageable, problem, connectionState } from "./lib/workspace-domain.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from "./lib/bot-catalog.js";
@@ -1092,8 +1092,19 @@ app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error)
 
 migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => migrateAiBotConnections(pool)).then(() => {
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
-  void startDiscordBot({ pool });
-  void restoreAiBots(pool).catch(error => console.error('Connected AI bots restore failed', error.message));
+  if (process.env.BOT_GATEWAY_MODE === 'external') {
+    const refreshBotStatus = async () => {
+      try {
+        const row = (await pool.query("SELECT status,seen_at FROM bot_runtime_state WHERE id='original'")).rows[0];
+        setExternalBotStatus(row && Date.now() - new Date(row.seen_at).getTime() < 35_000 ? row.status : { configured: Boolean(process.env.DISCORD_BOT_TOKEN), online: false, memberJoins: false, error: 'worker_offline' });
+      } catch (error) { console.error('Could not read bot worker status', error.message); }
+    };
+    void refreshBotStatus();
+    setInterval(() => void refreshBotStatus(), 10_000).unref();
+  } else {
+    void startDiscordBot({ pool });
+    void restoreAiBots(pool).catch(error => console.error('Connected AI bots restore failed', error.message));
+  }
   startScheduleRunner({ pool, authorizedGuild, discordBotFetch: async (pathname, options, job) => {
     const bot = await botTokenForPublication(pool, job.guild_id);
     return discordBotFetch(pathname, bot ? { ...options, headers: { ...options.headers, Authorization: `Bot ${bot.token}` } } : options);

@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: BOT_GATEWAY_MODE
+        value: external
       - key: SESSION_SECRET
         generateValue: true
       - key: ENCRYPTION_KEY

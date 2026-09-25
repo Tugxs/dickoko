@@ -24,8 +24,11 @@ let retryCount = 0;
 let starting = false;
 let memberIntentAllowed = true;
 let cooldownTableReady = false;
+let externalStatus = null;
+let shuttingDown = false;
 
 function scheduleReconnect(retryMs) {
+  if (shuttingDown) return;
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = setTimeout(() => {
     retryTimer = null;
@@ -114,10 +117,25 @@ async function registerGuildCommands(rest, applicationId, guildId, token) {
 }
 
 export function getDiscordBotStatus() {
+  if (process.env.BOT_GATEWAY_MODE === 'external') return externalStatus || { ...state, online: false, error: 'worker_starting' };
   return { ...state };
 }
 
+export function setExternalBotStatus(status) {
+  externalStatus = status;
+}
+
+export async function stopDiscordBot() {
+  shuttingDown = true;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  const client = botClient;
+  botClient = null;
+  if (client) await client.destroy();
+}
+
 export async function startDiscordBot({ pool } = {}) {
+  if (shuttingDown) return null;
   if (starting || botClient?.isReady()) return botClient;
   starting = true;
   databasePool = pool || null;
@@ -317,5 +335,4 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   } finally { clearTimeout(timeout); }
 }
-
 
