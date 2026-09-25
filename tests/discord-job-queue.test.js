@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 
 process.env.ENCRYPTION_KEY = 'test-only-queue-key';
 const requests = [];
+let upstream = () => Response.json({ id: 'sent-message' });
 globalThis.fetch = async (url, options) => {
   requests.push({ url, options });
-  return new Response(JSON.stringify({ id: 'sent-message' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  return upstream();
 };
 const { enqueueDiscordJob, executeDiscordJob } = await import('../lib/discord-job-queue.js');
 
@@ -35,4 +36,22 @@ test('full bot queue refuses a request before it reaches Discord', async () => {
   const result = await enqueueDiscordJob(pool, { botKey: 'bot-a', route: 'GET /guilds/123', pathname: '/guilds/123', authorization: 'Bot token' });
   assert.equal(result.status, 503);
   assert.equal(requests.length, 1);
+});
+
+test('Discord retry-after is persisted for the bot route across worker restarts', async () => {
+  upstream = () => new Response('{"retry_after":60}', { status: 429, headers: { 'content-type': 'application/json' } });
+  let inserted;
+  const statements = [];
+  const pool = { query: async (sql, args = []) => {
+    statements.push({ sql, args });
+    if (sql.startsWith('SELECT count(')) return { rows: [{ total: 0, bot: 0 }] };
+    if (sql.startsWith('INSERT INTO discord_jobs(')) inserted = args;
+    if (sql.startsWith('SELECT status,response_status')) return { rows: [{ status: 'done', response_status: 200, response_body: '{}', response_headers: {} }] };
+    return { rows: [] };
+  } };
+  await enqueueDiscordJob(pool, { botKey: 'bot-retry', route: 'POST /channels/456/messages', pathname: '/channels/456/messages', authorization: 'Bot retry-token' });
+  await executeDiscordJob(pool, { id: inserted[0], bot_key: 'bot-retry', route: inserted[2], pathname: inserted[3], method: 'POST', authorization_cipher: inserted[5], headers: {}, body: null });
+  const persisted = statements.find(entry => entry.sql.startsWith('INSERT INTO discord_job_route_limits'));
+  assert.deepEqual(persisted.args, ['bot-retry', 'POST /channels/456/messages', 60_000]);
+  upstream = () => Response.json({ id: 'sent-message' });
 });
