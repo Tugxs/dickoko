@@ -22,6 +22,8 @@ test('welcome composite and support artwork are retained only with valid setting
   definition.features.ticket.color = '#12aabb';
   definition.features.ticket.buttonLabel = 'اطلب المساعدة';
   assert.equal(normalizeReadyDefinition(definition).features.ticket.buttonLabel, 'اطلب المساعدة');
+  definition.features.ticket.imageStyle = 'design';
+  assert.throws(() => normalizeReadyDefinition(definition), /ادمج شعار الدعم/);
 });
 
 test('the two catalog templates have valid editable structure and no administrator grants', () => {

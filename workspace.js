@@ -349,6 +349,8 @@ function readyStart(template) {
   state.readyDraft = structuredClone(template.definition);
   state.readyMode = 'add';
   state.readyExecutor = state.readyCustomBot?.online ? 'custom' : 'diskoko';
+  state.readyTicketDesignFile = null;
+  state.readyTicketLogoFile = null;
   renderReadyEditor();
 }
 function readyDraftUpdate(field, value) {
@@ -399,7 +401,7 @@ function renderReadyEditor() {
   welcomeSection.insertAdjacentHTML('beforeend', `<label>صورة الترحيب أو GIF (حتى 8 ميجابايت)<input id="readyWelcomeImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><button class="btn text" id="readyRemoveImage" ${d.features.welcome?.banner ? '' : 'hidden'}>إزالة الصورة الحالية</button><label>موضع صورة العضو<select data-ready-field="features.welcome.avatarPosition"><option value="right" ${!d.features.welcome?.avatarPosition || d.features.welcome.avatarPosition === 'right' ? 'selected' : ''}>يمين</option><option value="left" ${d.features.welcome?.avatarPosition === 'left' ? 'selected' : ''}>يسار</option><option value="top" ${d.features.welcome?.avatarPosition === 'top' ? 'selected' : ''}>أعلى</option></select></label><label>موضع الصورة<select data-ready-field="features.welcome.bannerPosition"><option value="below" ${d.features.welcome?.bannerPosition !== 'above' ? 'selected' : ''}>أسفل البطاقة</option><option value="above" ${d.features.welcome?.bannerPosition === 'above' ? 'selected' : ''}>أعلى البطاقة</option></select></label>`);
   welcomeSection.insertAdjacentHTML('beforeend', `<label class="check-row"><input type="checkbox" data-ready-field="features.welcome.composite" ${d.features.welcome?.composite ? 'checked' : ''}>ضع صورة العضو داخل التصميم المرفوع</label><label>مكان صورة العضو داخل التصميم<select data-ready-field="features.welcome.avatarPosition"><option value="right" ${d.features.welcome?.avatarPosition === 'right' ? 'selected' : ''}>يمين</option><option value="center" ${d.features.welcome?.avatarPosition === 'center' ? 'selected' : ''}>الوسط</option><option value="left" ${d.features.welcome?.avatarPosition === 'left' ? 'selected' : ''}>يسار</option><option value="top" ${d.features.welcome?.avatarPosition === 'top' ? 'selected' : ''}>فوق البطاقة (بدون دمج)</option></select></label><label>تحريك صورة العضو أعلى وأسفل <output id="readyAvatarYValue">${Number(d.features.welcome?.avatarVertical ?? 50)}%</output><input type="range" min="15" max="85" data-ready-field="features.welcome.avatarVertical" value="${Number(d.features.welcome?.avatarVertical ?? 50)}"></label><label>حجم صورة العضو <output id="readyAvatarSizeValue">${Number(d.features.welcome?.avatarRadius ?? 95)}</output><input type="range" min="60" max="160" data-ready-field="features.welcome.avatarRadius" value="${Number(d.features.welcome?.avatarRadius ?? 95)}"></label><p class="form-note">عند الدمج تُستخدم صورة العضو الحقيقية عند انضمامه. معاينة الصورة هنا مثال. التصميم الثابت يُجهّز بمقاس 1200×480 تلقائيًا.</p>`);
   ticketSection.insertAdjacentHTML('beforeend', `<label>لون لوحة الدعم<input type="color" data-ready-field="features.ticket.color" value="${esc(d.features.ticket?.color || '#8d72e8')}"></label><label>نص زر الدعم<input data-ready-field="features.ticket.buttonLabel" maxlength="80" value="${esc(d.features.ticket?.buttonLabel || 'فتح تذكرة دعم')}"></label><label>صورة لوحة الدعم أو GIF (حتى 8 ميجابايت)<input id="readyTicketImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><button class="btn text" id="readyRemoveTicketImage" ${d.features.ticket?.banner ? '' : 'hidden'}>إزالة صورة الدعم</button><label>موضع صورة الدعم<select data-ready-field="features.ticket.bannerPosition"><option value="below" ${d.features.ticket?.bannerPosition !== 'above' ? 'selected' : ''}>أسفل النص</option><option value="above" ${d.features.ticket?.bannerPosition === 'above' ? 'selected' : ''}>فوق النص</option></select></label>`);
-  ticketSection.insertAdjacentHTML('beforeend', `<label>طريقة عرض صورة الدعم<select data-ready-field="features.ticket.imageStyle"><option value="normal" ${d.features.ticket?.imageStyle !== 'logo' ? 'selected' : ''}>صورة عادية</option><option value="logo" ${d.features.ticket?.imageStyle === 'logo' ? 'selected' : ''}>شعار صغير داخل البطاقة</option></select></label>`);
+  ticketSection.insertAdjacentHTML('beforeend', `<label>طريقة عرض صورة الدعم<select data-ready-field="features.ticket.imageStyle"><option value="normal" ${!['logo','design'].includes(d.features.ticket?.imageStyle) ? 'selected' : ''}>صورة عادية</option><option value="logo" ${d.features.ticket?.imageStyle === 'logo' ? 'selected' : ''}>شعار صغير داخل البطاقة</option><option value="design" ${d.features.ticket?.imageStyle === 'design' ? 'selected' : ''}>دمج شعار دائري داخل تصميمك</option></select></label><div id="readyTicketDesignControls" class="ready-design-controls" ${d.features.ticket?.imageStyle === 'design' ? '' : 'hidden'}><label>شعار السيرفر داخل التصميم<input id="readyTicketLogo" type="file" accept="image/png,image/jpeg,image/webp"></label><label>تحريك الشعار يمينًا ويسارًا <output id="readyTicketXValue">${Number(d.features.ticket?.logoX ?? 50)}%</output><input id="readyTicketX" type="range" min="10" max="90" value="${Number(d.features.ticket?.logoX ?? 50)}"></label><label>تحريك الشعار أعلى وأسفل <output id="readyTicketYValue">${Number(d.features.ticket?.logoY ?? 50)}%</output><input id="readyTicketY" type="range" min="25" max="75" value="${Number(d.features.ticket?.logoY ?? 50)}"></label><small class="form-note">ارفع تصميمًا ثابتًا وشعارًا، ثم حرّك موضع الشعار. تظهر النتيجة في المعاينة قبل النشر.</small></div>`);
   welcomeSection.querySelector('[data-ready-field="features.welcome.avatarPosition"]').closest('label').remove();
   readyDecoratePreview();
   $('#readyWelcomeImage').onchange = async event => {
@@ -410,14 +412,33 @@ function renderReadyEditor() {
     $('#readyPreview').innerHTML = readyPreview(d); readyDecoratePreview(); $('#readyRemoveImage').hidden = false;
   };
   $('#readyRemoveImage').onclick = () => { d.features.welcome.banner = null; $('#readyWelcomeImage').value = ''; $('#readyPreview').innerHTML = readyPreview(d); readyDecoratePreview(); $('#readyRemoveImage').hidden = true; };
+  let ticketArtworkVersion = 0;
+  const updateTicketArtwork = async () => {
+    const version = ++ticketArtworkVersion;
+    const file = state.readyTicketDesignFile, logo = state.readyTicketLogoFile;
+    if (!file) return;
+    if (d.features.ticket.imageStyle === 'design') {
+      if (!logo) return;
+      if (file.type === 'image/gif') throw Error('دمج الشعار داخل التصميم يحتاج PNG أو JPG أو WebP. استخدم GIF في العرض العادي.');
+      const image = await prepareWelcomeBackground(file, logo, d.features.ticket.logoX ?? 50, d.features.ticket.logoY ?? 50);
+      if (version !== ticketArtworkVersion) return;
+      d.features.ticket.banner = image;
+    } else {
+      const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
+      if (version !== ticketArtworkVersion) return;
+      d.features.ticket.banner = { mime: file.type, base64: dataUrl.split(',')[1] };
+    }
+    $('#readyPreview').innerHTML = readyPreview(d); readyDecoratePreview(); $('#readyRemoveTicketImage').hidden = false;
+  };
   $('#readyTicketImage').onchange = async event => {
     const file = event.target.files?.[0]; if (!file) return;
     if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 8 * 1024 * 1024) { toast('اختر صورة PNG أو JPG أو WebP أو GIF بحجم 8 ميجابايت أو أقل.'); event.target.value = ''; return; }
-    const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
-    d.features.ticket.banner = { mime: file.type, base64: dataUrl.split(',')[1] };
-    $('#readyPreview').innerHTML = readyPreview(d); readyDecoratePreview(); $('#readyRemoveTicketImage').hidden = false;
+    state.readyTicketDesignFile = file;
+    try { await updateTicketArtwork(); } catch (error) { toast(error.message); }
   };
-  $('#readyRemoveTicketImage').onclick = () => { d.features.ticket.banner = null; $('#readyTicketImage').value = ''; $('#readyPreview').innerHTML = readyPreview(d); readyDecoratePreview(); $('#readyRemoveTicketImage').hidden = true; };
+  $('#readyTicketLogo').onchange = async event => { state.readyTicketLogoFile = event.target.files?.[0] || null; try { await updateTicketArtwork(); } catch (error) { toast(error.message); } };
+  for (const axis of ['X', 'Y']) $(`#readyTicket${axis}`).oninput = async event => { d.features.ticket[`logo${axis}`] = Number(event.target.value); $(`#readyTicket${axis}Value`).textContent = `${event.target.value}%`; try { await updateTicketArtwork(); } catch (error) { toast(error.message); } };
+  $('#readyRemoveTicketImage').onclick = () => { ticketArtworkVersion++; d.features.ticket.banner = null; state.readyTicketDesignFile = null; state.readyTicketLogoFile = null; $('#readyTicketImage').value = ''; $('#readyTicketLogo').value = ''; $('#readyPreview').innerHTML = readyPreview(d); readyDecoratePreview(); $('#readyRemoveTicketImage').hidden = true; };
   document.querySelectorAll('[data-ready-field]').forEach(field => {
     const handler = () => {
       if (field.type === 'color' && field.dataset.readyField.endsWith('.color') && field.dataset.readyField.startsWith('roles.')) readyDraftUpdate(field, parseInt(field.value.slice(1), 16));
@@ -425,6 +446,7 @@ function renderReadyEditor() {
       if (field.dataset.readyField === 'features.welcome.avatarVertical') $('#readyAvatarYValue').textContent = `${field.value}%`;
       if (field.dataset.readyField === 'features.welcome.avatarRadius') $('#readyAvatarSizeValue').textContent = field.value;
       if (field.dataset.readyField === 'features.welcome.composite' && d.features.welcome.banner && d.features.welcome.banner.mime !== 'image/gif') toast('بعد تفعيل الدمج، أعد رفع التصميم ليُجهّز بمقاس البطاقة.');
+      if (field.dataset.readyField === 'features.ticket.imageStyle') { $('#readyTicketDesignControls').hidden = field.value !== 'design'; void updateTicketArtwork().catch(error => toast(error.message)); }
       if (field.dataset.readyField.endsWith('.access') || field.dataset.readyField.endsWith('.type')) renderReadyEditor();
     };
     field.addEventListener(field.tagName === 'SELECT' || field.type === 'checkbox' ? 'change' : 'input', handler);
