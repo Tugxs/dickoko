@@ -24,7 +24,7 @@ test('queued multipart request preserves files, encrypts bot token, and returns 
   assert.equal(result.data.id, 'sent-message');
   assert.doesNotMatch(inserted[5], /secret-test-token/);
   assert.equal(JSON.parse(inserted[7]).parts[1].filename, 'design.gif');
-  await executeDiscordJob(pool, { id: inserted[0], bot_key: 'bot-a', route: inserted[2], pathname: inserted[3], method: 'POST', authorization: inserted[5], headers: {}, body: JSON.parse(inserted[7]) });
+  await executeDiscordJob(pool, { id: inserted[0], bot_key: 'bot-a', route: inserted[2], pathname: inserted[3], method: 'POST', authorization_cipher: inserted[5], headers: {}, body: JSON.parse(inserted[7]) });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].options.headers.Authorization, 'Bot secret-test-token');
   assert.equal((await requests[0].options.body.get('files[0]').arrayBuffer()).byteLength, 6);
