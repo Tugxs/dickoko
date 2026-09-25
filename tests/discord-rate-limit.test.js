@@ -76,6 +76,18 @@ test('invalid requests from different bots trigger one outbound IP safety pause'
   assert.equal(calls, 3);
 });
 
+test('one bot with repeated invalid routes is paused without blocking another bot', async () => {
+  let calls = 0;
+  const gate = createDiscordRequestGate({ requestsPerSecond: 1_000, globalRequestsPerSecond: 1_000, invalidBotLimit: 3, invalidRequestLimit: 50, request: async () => {
+    calls++;
+    return new Response('{}', { status: calls <= 3 ? 403 : 200 });
+  } });
+  for (let n = 0; n < 3; n++) await gate('bad-bot', `GET /channels/${n}`, 'https://example.test', {});
+  assert.equal((await gate('bad-bot', 'GET /channels/another', 'https://example.test', {})).status, 403);
+  assert.equal((await gate('good-bot', 'GET /guilds/1', 'https://example.test', {})).status, 200);
+  assert.equal(calls, 4);
+});
+
 test('shared rate limits do not count as invalid outbound requests', async () => {
   let calls = 0;
   const gate = createDiscordRequestGate({ requestsPerSecond: 1_000, globalRequestsPerSecond: 1_000, invalidRequestLimit: 1, request: async () => {
