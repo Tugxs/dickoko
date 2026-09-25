@@ -332,6 +332,15 @@ function readyDecoratePreview() {
       if (support.bannerPosition === 'above') supportCard.prepend(image); else supportCard.append(image);
     }
   }
+  for (const [kind, source] of [['welcome', welcome?.enabled ? card : null], ['ticket', support?.enabled ? supportCard : null]]) {
+    const local = $(`#ready-${kind}-inline-preview`);
+    if (!local) continue;
+    local.replaceChildren();
+    const title = document.createElement('strong'); title.textContent = kind === 'welcome' ? 'معاينة الترحيب المباشرة' : 'معاينة لوحة الدعم المباشرة';
+    local.append(title);
+    if (source) local.append(source.cloneNode(true));
+    else { const note = document.createElement('p'); note.textContent = 'فعّل هذا القسم لتظهر معاينته هنا.'; local.append(note); }
+  }
 }
 function readySelectOptions(items, chosen) { return items.map(item => `<option value="${esc(item.key)}" ${item.key === chosen ? 'selected' : ''}>${esc(item.name)}</option>`).join(''); }
 async function readyTemplatesPage() {
@@ -403,6 +412,14 @@ function renderReadyEditor() {
   ticketSection.insertAdjacentHTML('beforeend', `<label>لون لوحة الدعم<input type="color" data-ready-field="features.ticket.color" value="${esc(d.features.ticket?.color || '#8d72e8')}"></label><label>نص زر الدعم<input data-ready-field="features.ticket.buttonLabel" maxlength="80" value="${esc(d.features.ticket?.buttonLabel || 'فتح تذكرة دعم')}"></label><label>صورة لوحة الدعم أو GIF (حتى 8 ميجابايت)<input id="readyTicketImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><button class="btn text" id="readyRemoveTicketImage" ${d.features.ticket?.banner ? '' : 'hidden'}>إزالة صورة الدعم</button><label>موضع صورة الدعم<select data-ready-field="features.ticket.bannerPosition"><option value="below" ${d.features.ticket?.bannerPosition !== 'above' ? 'selected' : ''}>أسفل النص</option><option value="above" ${d.features.ticket?.bannerPosition === 'above' ? 'selected' : ''}>فوق النص</option></select></label>`);
   ticketSection.insertAdjacentHTML('beforeend', `<label>طريقة عرض صورة الدعم<select data-ready-field="features.ticket.imageStyle"><option value="normal" ${!['logo','design'].includes(d.features.ticket?.imageStyle) ? 'selected' : ''}>صورة عادية</option><option value="logo" ${d.features.ticket?.imageStyle === 'logo' ? 'selected' : ''}>شعار صغير داخل البطاقة</option><option value="design" ${d.features.ticket?.imageStyle === 'design' ? 'selected' : ''}>دمج شعار دائري داخل تصميمك</option></select></label><div id="readyTicketDesignControls" class="ready-design-controls" ${d.features.ticket?.imageStyle === 'design' ? '' : 'hidden'}><label>شعار السيرفر داخل التصميم<input id="readyTicketLogo" type="file" accept="image/png,image/jpeg,image/webp"></label><label>تحريك الشعار يمينًا ويسارًا <output id="readyTicketXValue">${Number(d.features.ticket?.logoX ?? 50)}%</output><input id="readyTicketX" type="range" min="10" max="90" value="${Number(d.features.ticket?.logoX ?? 50)}"></label><label>تحريك الشعار أعلى وأسفل <output id="readyTicketYValue">${Number(d.features.ticket?.logoY ?? 50)}%</output><input id="readyTicketY" type="range" min="25" max="75" value="${Number(d.features.ticket?.logoY ?? 50)}"></label><small class="form-note">ارفع تصميمًا ثابتًا وشعارًا، ثم حرّك موضع الشعار. تظهر النتيجة في المعاينة قبل النشر.</small></div>`);
   welcomeSection.querySelector('[data-ready-field="features.welcome.avatarPosition"]').closest('label').remove();
+  for (const [section, kind] of [[welcomeSection, 'welcome'], [ticketSection, 'ticket']]) {
+    section.classList.add('ready-feature-with-preview');
+    const fields = document.createElement('div'); fields.className = 'ready-feature-fields';
+    while (section.firstChild) fields.append(section.firstChild);
+    const inline = document.createElement('aside'); inline.className = 'ready-feature-inline'; inline.id = `ready-${kind}-inline-preview`;
+    inline.setAttribute('aria-live', 'polite');
+    section.append(fields, inline);
+  }
   readyDecoratePreview();
   $('#readyWelcomeImage').onchange = async event => {
     const file = event.target.files?.[0]; if (!file) return;

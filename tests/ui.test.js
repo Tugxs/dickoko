@@ -59,6 +59,11 @@ test('ready templates open as an independent section with both sources and a Dis
   assert.match(doc.querySelector('.ready-unit-note').textContent, /٣٣/);
   assert.ok(doc.querySelector('input[name="readyExecutor"][value="custom"]'));
   assert.ok(doc.querySelector('#readyTicketImage'));
+  assert.match(doc.querySelector('#ready-welcome-inline-preview').textContent, /أهلًا بك/);
+  assert.match(doc.querySelector('#ready-ticket-inline-preview').textContent, /فتح تذكرة دعم/);
+  const welcomeTitle = doc.querySelector('[data-ready-field="features.welcome.title"]');
+  welcomeTitle.value = 'أهلًا بالعضو'; welcomeTitle.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.match(doc.querySelector('#ready-welcome-inline-preview').textContent, /أهلًا بالعضو/);
   dom.window.close();
 });
 test('community alerts show actionable paused giveaways and failed schedules', async () => {
