@@ -2,7 +2,7 @@ services:
   - type: web
     name: diskoko
     runtime: node
-    plan: free
+    plan: 0.5c-512mb
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
@@ -47,4 +47,4 @@ services:
           property: connectionString
 databases:
   - name: diskoko-db
-    plan: free
+    plan: 0.1c-256mb
