@@ -389,10 +389,10 @@ function readyNewKey(prefix) { return `${prefix}-${Math.random().toString(36).sl
 function renderReadyEditor() {
   if (screen() !== 'ready-templates') return;
   const templates = state.readyCatalog || [];
-  const cards = `<div class="template-grid">${templates.map(template => { const c = readyCounts(template.definition); return `<article class="template ${state.readyKey === template.key ? 'selected' : ''}"><div class="template-icon">${template.icon}</div><h3>${esc(template.name)}</h3><p>${esc(template.description)}</p><small>${fmt(c.units)} متغيرًا · ${fmt(c.categories)} تصنيفات · ${fmt(c.channels)} قنوات · ${fmt(c.roles)} رتب</small><div class="actions"><button class="btn ${state.readyKey === template.key ? 'primary' : 'secondary'}" data-ready-choose="${esc(template.key)}">${state.readyKey === template.key ? 'إعادة تحميل الأصل' : 'اختيار وتعديل'}</button><a class="btn text" target="_blank" rel="noopener" href="${esc(template.source)}">المصدر ↗</a></div></article>`; }).join('')}</div>`;
+  const cards = `<div class="template-grid">${templates.map(template => { const c = readyCounts(template.definition); return `<article class="template ${state.readyKey === template.key ? 'selected' : ''}"><div class="template-icon">${template.icon}</div><h3>${esc(template.name)}</h3><p>${esc(template.description)}</p><small>${fmt(c.units)} متغيرًا · ${fmt(c.categories)} تصنيفات · ${fmt(c.channels)} قنوات · ${fmt(c.roles)} رتب</small><div class="actions"><button class="btn ${state.readyKey === template.key ? 'primary' : 'secondary'}" data-ready-choose="${esc(template.key)}">${state.readyKey === template.key ? 'إعادة تحميل الأصل' : 'اختيار وتعديل'}</button>${template.source ? `<a class="btn text" target="_blank" rel="noopener" href="${esc(template.source)}">المصدر ↗</a>` : ""}</div></article>`; }).join('')}</div>`;
   const d = state.readyDraft;
   if (!d) {
-    $('#workspace').innerHTML = head('قوالب جاهزة لسيرفرك', 'قالبان مختلفان للتجربة؛ عدّل الهيكل والرتب ثم اختر التنصيب أو الاستبدال.') + connectionNotice() + cards + panel('قبل التطبيق', '<p class="panel-body">التنصيب يحتفظ بالموجود. الاستبدال ينشئ الهيكل الجديد أولًا، ثم يحذف العناصر القديمة القابلة للحذف بعد مراجعتك الدقيقة. حذف القنوات يحذف تاريخ رسائلها من Discord.</p>');
+    $('#workspace').innerHTML = head('قوالب جاهزة لسيرفرك', 'ثلاثة قوالب مختلفة للتجربة؛ عدّل الهيكل والرتب ثم اختر التنصيب أو الاستبدال.') + connectionNotice() + cards + panel('قبل التطبيق', '<p class="panel-body">التنصيب يحتفظ بالموجود. الاستبدال ينشئ الهيكل الجديد أولًا، ثم يحذف العناصر القديمة القابلة للحذف بعد مراجعتك الدقيقة. حذف القنوات يحذف تاريخ رسائلها من Discord.</p>');
   } else {
     const channels = d.categories.flatMap(group => group.channels).filter(channel => channel.type === 0);
     const roleOptions = readySelectOptions(d.roles, '');
@@ -1290,4 +1290,5 @@ window.addEventListener('hashchange', () => { render(); $('#workspace').focus({ 
 window.addEventListener('focus', () => { if (state.awaitingInstall) { state.awaitingInstall = false; loadGuild(); } });
 $('#dialog').addEventListener('cancel', event => { if ($('#applyPlan')?.textContent === 'جارٍ التطبيق…') event.preventDefault(); });
 start();
+
 

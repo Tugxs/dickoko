@@ -27,7 +27,7 @@ test('welcome composite and support artwork are retained only with valid setting
 });
 
 test('the two catalog templates have valid editable structure and no administrator grants', () => {
-  assert.equal(READY_TEMPLATES.length, 2);
+  assert.equal(READY_TEMPLATES.length, 3);
   for (const template of READY_TEMPLATES) {
     const definition = normalizeReadyDefinition(template.definition);
     assert.ok(definition.categories.length > 0);
@@ -36,6 +36,19 @@ test('the two catalog templates have valid editable structure and no administrat
   }
   const streamer = normalizeReadyDefinition(READY_TEMPLATES[1].definition);
   assert.equal(streamer.categories.flatMap(group => group.channels).length, 33);
+});
+
+test('Diskoko Gaming 1 remains compact with working welcome, ticket and activity logs', () => {
+  const template = READY_TEMPLATES.find(item => item.key === 'diskoko-gaming-1');
+  const definition = normalizeReadyDefinition(template.definition);
+  assert.equal(definition.categories.length, 6);
+  assert.equal(definition.categories.flatMap(group => group.channels).length, 20);
+  assert.equal(definition.roles.length, 5);
+  assert.equal(readyUsageUnits(definition), 29);
+  assert.equal(definition.features.welcome.enabled, true);
+  assert.equal(definition.features.ticket.enabled, true);
+  assert.equal(definition.features.logs.events.includes('command'), true);
+  assert.ok(definition.categories.flatMap(group => group.channels).some(channel => channel.key === definition.features.logs.channelKey && channel.access === 'private'));
 });
 
 test('replacement removes every old channel and unmanaged role, while installation keeps them', () => {
