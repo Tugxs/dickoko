@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { claimSupportTicket, discordMessageOptions, handleInteractiveButton, pollMessageOptions, processDueGiveaways, reopenSupportTicket, repairLegacyTicketControls, resolvePublicationChannel, sendWelcomeCard } from '../lib/interactive-systems.js';
+import { claimSupportTicket, discordMessageOptions, handleInteractiveButton, mountInteractiveSystems, pollMessageOptions, processDueGiveaways, reopenSupportTicket, repairLegacyTicketControls, resolvePublicationChannel, sendWelcomeCard } from '../lib/interactive-systems.js';
 import { decodeWelcomePng, encodeWelcomePng } from '../lib/welcome-image.js';
 
 test('automatic welcome sends one composed design with the joining member avatar', async () => {
@@ -32,6 +32,20 @@ test('automatic welcome keeps an animated GIF banner and member avatar in the ca
   assert.equal(sends[0].embeds[0].image.url, 'attachment://welcome.gif');
   assert.match(sends[0].embeds[1].thumbnail.url, /avatars\/member/);
   assert.deepEqual(sends[0].files[0].attachment, gif);
+});
+
+test('welcome activation checks only its selected Discord channel', async () => {
+  let launch; const paths = []; let response;
+  const item = { id: 'request', guild_id: 'guild', proposal: { interactive: { kind: 'welcome', title: 'مرحبًا', description: 'أهلًا {member}' } } };
+  const client = { async query(sql) { return sql.startsWith('SELECT id,guild_id') ? { rows: [item] } : { rows: [] }; }, release() {} };
+  const pool = { connect: async () => client };
+  const app = { post(path, ...handlers) { if (path.endsWith('/launch-interactive')) launch = handlers.at(-1); } };
+  mountInteractiveSystems(app, { pool, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => true, requirePlanCapacity: async () => {}, getDiscordBotStatus: () => ({ online: true, memberJoins: true }), discordBotFetch: async path => { paths.push(path); return { ok: true, status: 200, data: { id: 'channel', guild_id: 'guild', type: 0 } }; } });
+  const req = { params: { id: 'request' }, user: { id: 'user' }, body: { confirmed: true, channelId: 'channel', title: 'مرحبًا', description: 'أهلًا {member}' }, requestId: 'test' };
+  const res = { json(value) { response = value; return this; }, status() { return this; } };
+  await launch(req, res, error => { throw error; });
+  assert.deepEqual(paths, ['/channels/channel']);
+  assert.equal(response.activated, true);
 });
 
 test('only support role or server manager can claim a ticket', async () => {
@@ -281,3 +295,4 @@ test('giveaway retries stop after five consecutive temporary failures', async ()
   assert.equal(giveaway.status, 'paused');
   assert.equal(giveaway.failure_count, 5);
 });
+
