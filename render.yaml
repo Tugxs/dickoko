@@ -43,8 +43,8 @@ services:
         sync: false
       - key: DATABASE_URL
         fromDatabase:
-          name: diskoko-db
+          name: dickoko-db
           property: connectionString
 databases:
-  - name: diskoko-db
+  - name: dickoko-db
     plan: 0.1c-256mb
