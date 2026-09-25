@@ -27,7 +27,7 @@ test('welcome composite and support artwork are retained only with valid setting
 });
 
 test('the two catalog templates have valid editable structure and no administrator grants', () => {
-  assert.equal(READY_TEMPLATES.length, 3);
+  assert.equal(READY_TEMPLATES.length, 4);
   for (const template of READY_TEMPLATES) {
     const definition = normalizeReadyDefinition(template.definition);
     assert.ok(definition.categories.length > 0);
@@ -38,9 +38,10 @@ test('the two catalog templates have valid editable structure and no administrat
   assert.equal(streamer.categories.flatMap(group => group.channels).length, 33);
 });
 
-test('Diskoko Gaming 1 remains compact with working welcome, ticket and activity logs', () => {
+test('Diskoko Gaming Arabic remains compact with working welcome, ticket and activity logs', () => {
   const template = READY_TEMPLATES.find(item => item.key === 'diskoko-gaming-1');
   const definition = normalizeReadyDefinition(template.definition);
+  assert.equal(template.name, 'Diskoko Gaming Arabic');
   assert.equal(definition.categories.length, 6);
   assert.equal(definition.categories.flatMap(group => group.channels).length, 20);
   assert.equal(definition.roles.length, 5);
@@ -49,6 +50,22 @@ test('Diskoko Gaming 1 remains compact with working welcome, ticket and activity
   assert.equal(definition.features.ticket.enabled, true);
   assert.equal(definition.features.logs.events.includes('command'), true);
   assert.ok(definition.categories.flatMap(group => group.channels).some(channel => channel.key === definition.features.logs.channelKey && channel.access === 'private'));
+});
+
+test('Diskoko Streamer gives the creator posting access without exposing subscriber rooms', () => {
+  const template = READY_TEMPLATES.find(item => item.key === 'diskoko-streamer');
+  const definition = normalizeReadyDefinition(template.definition);
+  const channels = definition.categories.flatMap(group => group.channels);
+  assert.equal(template.name, 'Diskoko Streamer');
+  assert.equal(definition.categories.length, 7);
+  assert.equal(channels.length, 21);
+  assert.equal(readyUsageUnits(definition), 31);
+  assert.equal(channels.find(channel => channel.key === 'live').postRoleKey, 'streamer');
+  assert.equal(channels.find(channel => channel.key === 'subscriber-chat').roleKey, 'subscriber');
+  assert.equal(definition.features.welcome.enabled && definition.features.ticket.enabled && definition.features.logs.enabled, true);
+  const invalid = structuredClone(template.definition);
+  invalid.categories.find(group => group.key === 'broadcast').channels.find(channel => channel.key === 'live').postRoleKey = 'missing-role';
+  assert.throws(() => normalizeReadyDefinition(invalid), /رتبة النشر/);
 });
 
 test('replacement removes every old channel and unmanaged role, while installation keeps them', () => {

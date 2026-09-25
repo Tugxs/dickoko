@@ -51,6 +51,8 @@ test('ready templates open as an independent section with both sources and a Dis
   const { dom, doc } = await page('ready-templates', response, 'studio.html', 'workspace.js', window => { window.structuredClone = structuredClone; });
   assert.match(doc.body.textContent, /Server My Arabic/);
   assert.match(doc.body.textContent, /Streamer Community/);
+  assert.match(doc.body.textContent, /Diskoko Gaming Arabic/);
+  assert.match(doc.body.textContent, /Diskoko Streamer/);
   doc.querySelector('[data-ready-choose="server-my-arabic"]').click();
   assert.ok(doc.querySelector('#readyPreview .ready-discord'));
   assert.ok(doc.querySelector('input[name="readyMode"][value="replace"]'));
@@ -64,6 +66,9 @@ test('ready templates open as an independent section with both sources and a Dis
   const welcomeTitle = doc.querySelector('[data-ready-field="features.welcome.title"]');
   welcomeTitle.value = 'أهلًا بالعضو'; welcomeTitle.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.match(doc.querySelector('#ready-welcome-inline-preview').textContent, /أهلًا بالعضو/);
+  doc.querySelector('[data-ready-choose="diskoko-streamer"]').click();
+  assert.equal(doc.querySelector('[data-ready-field="categories.1.channels.0.postRoleKey"]').value, 'streamer');
+  assert.equal(doc.querySelectorAll('#readyPreview .ready-discord-channel').length, 21);
   dom.window.close();
 });
 test('community alerts show actionable paused giveaways and failed schedules', async () => {
