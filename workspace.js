@@ -981,8 +981,10 @@ async function loadSettingsBotConnection() {
   try {
     const { bot } = await api(`/api/ai/bot-connection?guildId=${encodeURIComponent(guild)}`);
     if (guild !== state.guild || epoch !== state.epoch || screen() !== 'settings') return;
+    const retryAt = bot?.retryAt && new Date(bot.retryAt).getTime() > Date.now()
+      ? `؛ المحاولة التالية ${new Date(bot.retryAt).toLocaleString('ar-SA')}` : '';
     target.innerHTML = bot
-      ? `<div class="row"><div class="row-main"><b>${esc(bot.name)}</b><small>بوتك الخاص · ${bot.online ? 'متصل وجاهز لتنفيذ أدوات السيرفر' : 'غير متصل؛ أعد الربط أو انتظر عودة الاتصال'}</small></div>${badge(bot.online ? 'متصل' : 'غير متصل', bot.online ? 'good' : 'warn')}</div><button class="btn secondary" id="settingsBotDisconnect" type="button">فصل بوتي والعودة لبوت ديسكوكو</button>`
+      ? `<div class="row"><div class="row-main"><b>${esc(bot.name)}</b><small>بوتك الخاص · ${bot.online ? 'متصل وجاهز لتنفيذ أدوات السيرفر' : `غير متصل${retryAt || '؛ أعد الربط أو انتظر عودة الاتصال'}`}</small></div>${badge(bot.online ? 'متصل' : 'غير متصل', bot.online ? 'good' : 'warn')}</div><button class="btn secondary" id="settingsBotDisconnect" type="button">فصل بوتي والعودة لبوت ديسكوكو</button>`
       : `<div class="row"><div class="row-main"><b>بوت ديسكوكو</b><small>البوت الافتراضي لهذا السيرفر</small></div>${badge(state.data.bot.online ? 'متصل' : 'غير متصل', state.data.bot.online ? 'good' : 'warn')}</div><button class="btn primary" id="settingsBotConnect" type="button">ربط بوتي الخاص</button>`;
     if (bot) $('#settingsBotDisconnect').onclick = run(async () => {
       if (!window.confirm('سيعود التنفيذ إلى بوت ديسكوكو. المنشورات التفاعلية السابقة التي أنشأها بوتك قد تتوقف. هل تريد المتابعة؟')) return;
