@@ -9,6 +9,7 @@ import pg from "pg";
 import nodemailer from "nodemailer";
 import { getDiscordBotStatus, setExternalBotStatus, startDiscordBot } from "./discord-bot.js";
 import { mountWorkspace, migrateWorkspace, startScheduleRunner } from "./lib/workspace-api.js";
+import { mountReadyTemplates, migrateReadyTemplates } from "./lib/ready-templates-api.js";
 import { manageable, problem, connectionState } from "./lib/workspace-domain.js";
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from "./lib/bot-catalog.js";
 import { migrateLocalAi, mountLocalAi, workerAuthorized } from "./lib/local-ai.js";
@@ -287,7 +288,7 @@ app.use((req, res, next) => {
 });
 const standardJson = express.json({ limit: "512kb", verify: (req, _res, buffer) => { if (req.path === "/api/webhooks/billing") req.rawBody = Buffer.from(buffer); } });
 const interactiveMediaJson = express.json({ limit: "29mb" });
-app.use((req, res, next) => req.method === 'POST' && (/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create-scheduled-event)$/.test(req.path) || req.path === '/api/ai/requests') ? interactiveMediaJson(req, res, next) : standardJson(req, res, next));
+app.use((req, res, next) => req.method === 'POST' && (/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create-scheduled-event)$/.test(req.path) || req.path === '/api/ai/requests' || /^\/api\/workspace\/\d{17,20}\/ready-templates\/review$/.test(req.path)) ? interactiveMediaJson(req, res, next) : standardJson(req, res, next));
 app.use("/api", (req, res, next) => {
   if (["POST", "PUT", "PATCH"].includes(req.method) && req.is("application/json") && (!req.body || typeof req.body !== "object" || Array.isArray(req.body))) return res.status(400).json({ error: "يجب أن تكون بيانات الطلب JSON object صالحًا" });
   next();
@@ -518,7 +519,7 @@ async function planCapacity(user, kind, db = pool) {
     return { used: rows[0].count, limit: limits.scheduledMessages };
   }
   if (kind === "changeSetsPerMonth") {
-    const { rows } = await db.query("SELECT ((SELECT COUNT(*) FROM change_sets WHERE user_id=$1 AND status='succeeded' AND updated_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ai_requests WHERE user_id=$1 AND (sent_message_id IS NOT NULL OR interactive_message_id IS NOT NULL) AND published_at >= date_trunc('month', NOW())))::int AS count", [user.id]);
+    const { rows } = await db.query("SELECT ((SELECT COUNT(*) FROM change_sets WHERE user_id=$1 AND status='succeeded' AND updated_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ai_requests WHERE user_id=$1 AND (sent_message_id IS NOT NULL OR interactive_message_id IS NOT NULL) AND published_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM ready_template_runs WHERE user_id=$1 AND status IN ('running','succeeded') AND updated_at >= date_trunc('month', NOW())))::int AS count", [user.id]);
     return { used: rows[0].count, limit: limits.changeSetsPerMonth };
   }
   return { used: 0, limit: 0 };
@@ -956,6 +957,7 @@ app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create
   next();
 } catch (error) { next(error); } });
 mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: executionBotStatus });
+mountReadyTemplates(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, botStatus: executionBotStatus });
 mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch, requirePlanCapacity });
 mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus: executionBotStatus });
 mountNativeEvents(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity });
@@ -1096,7 +1098,7 @@ app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
 app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const { status, body } = publicError(error, req.requestId); res.status(status).json(body); });
 
-migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => migrateAiBotConnections(pool)).then(() => migrateDiscordJobQueue(pool)).then(() => {
+migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => migrateAiBotConnections(pool)).then(() => migrateDiscordJobQueue(pool)).then(() => migrateReadyTemplates(pool)).then(() => {
   if (process.env.DISCORD_REST_MODE === 'worker') void startDiscordJobListener(pool).catch(error => console.error('Discord queue listener failed', error.message));
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
   if (process.env.BOT_GATEWAY_MODE === 'external') {

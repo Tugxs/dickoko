@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { fixtureResponse, guild, workspace } from './fixtures.js';
 import { aiPromptLibrary } from '../ai-library-catalog.js';
+import { READY_TEMPLATES } from '../lib/ready-templates.js';
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 5)); };
 async function page(hash = 'overview', response = fixtureResponse, file = 'studio.html', script = 'workspace.js', setup = () => {}) {
   const dom = new JSDOM(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), { url: `https://diskoko.test/studio?guild=${guild.id}#${hash}`, runScripts: 'outside-only', pretendToBeVisual: true });
@@ -43,7 +44,17 @@ test('voice recognition resumes after a browser pause and stops only when the us
 test('deep link opens the requested guild with true live data and one navigation controller', async () => {
   const { dom, doc, requests } = await page('builder');
   assert.match(doc.querySelector('h1').textContent, /مساحة مرتبة/); assert.match(doc.body.textContent, /الدردشة/);
-  assert.equal(doc.querySelectorAll('.nav-link').length, 11); assert.equal(requests.filter(r => r.url === '/api/account/overview').length, 1); dom.window.close();
+  assert.equal(doc.querySelectorAll('.nav-link').length, 12); assert.equal(requests.filter(r => r.url === '/api/account/overview').length, 1); dom.window.close();
+});
+test('ready templates open as an independent section with both sources and a Discord preview', async () => {
+  const response = url => url === '/api/ready-templates' ? { templates: READY_TEMPLATES } : fixtureResponse(url);
+  const { dom, doc } = await page('ready-templates', response, 'studio.html', 'workspace.js', window => { window.structuredClone = structuredClone; });
+  assert.match(doc.body.textContent, /Server My Arabic/);
+  assert.match(doc.body.textContent, /Streamer Community/);
+  doc.querySelector('[data-ready-choose="server-my-arabic"]').click();
+  assert.ok(doc.querySelector('#readyPreview .ready-discord'));
+  assert.ok(doc.querySelector('input[name="readyMode"][value="replace"]'));
+  dom.window.close();
 });
 test('community alerts show actionable paused giveaways and failed schedules', async () => {
   const response = url => url === `/api/workspace/${guild.id}` ? { ...workspace, alerts: [
