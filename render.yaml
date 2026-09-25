@@ -11,6 +11,8 @@ services:
         value: production
       - key: BOT_GATEWAY_MODE
         value: external
+      - key: DISCORD_REST_MODE
+        value: worker
       - key: SESSION_SECRET
         generateValue: true
       - key: ENCRYPTION_KEY

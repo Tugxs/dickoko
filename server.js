@@ -19,6 +19,7 @@ import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, public
 import { publicError } from "./lib/http-error.js";
 import { createDiscordRequestGate, discordRetryAfterMs } from "./lib/discord-rate-limit.js";
 import { validateDiscordWrite } from './lib/discord-preflight.js';
+import { enqueueDiscordJob, migrateDiscordJobQueue, startDiscordJobListener } from './lib/discord-job-queue.js';
 import { botTokenForPublication, connectedBot, connectedBotMetadata, migrateAiBotConnections, mountAiBotConnections, restoreAiBots } from "./lib/ai-bot-connections.js";
 
 const { Pool } = pg;
@@ -396,6 +397,11 @@ async function discordBotFetch(pathname, options = {}) {
   const authorization = options.headers?.Authorization || `Bot ${token}`;
   const botKey = crypto.createHash('sha256').update(authorization).digest('hex');
   const route = `${String(options.method || 'GET').toUpperCase()} ${pathname}`;
+  if (process.env.DISCORD_REST_MODE === 'worker') {
+    const worker = (await pool.query("SELECT seen_at FROM bot_runtime_state WHERE id='original'")).rows[0];
+    if (!worker || Date.now() - new Date(worker.seen_at).getTime() > 35_000) return { ok: false, status: 503, data: { message: 'عامل Discord غير متاح مؤقتًا. لم يُرسل الطلب.' }, headers: new Headers() };
+    return enqueueDiscordJob(pool, { botKey, route, pathname, authorization, options });
+  }
   const response = await discordRequestGate(botKey, route, `${DISCORD_API}${pathname}`, { signal: AbortSignal.timeout(20000), ...options, headers: { Authorization: `Bot ${token}`, ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) } });
   let data = null; try { data = await response.json(); } catch { data = {}; }
   return { ok: response.ok, status: response.status, data, headers: response.headers };
@@ -1090,7 +1096,8 @@ app.get("/dashboard", (_req, res) => res.sendFile(path.join(__dirname, "account.
 app.get("/studio", (_req, res) => res.sendFile(path.join(__dirname, "studio.html")));
 app.use((error, req, res, _next) => { console.error(`[${req.requestId}]`, error); const { status, body } = publicError(error, req.requestId); res.status(status).json(body); });
 
-migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => migrateAiBotConnections(pool)).then(() => {
+migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).then(() => migrateInteractiveSystems(pool)).then(() => migrateAiBotConnections(pool)).then(() => migrateDiscordJobQueue(pool)).then(() => {
+  if (process.env.DISCORD_REST_MODE === 'worker') void startDiscordJobListener(pool).catch(error => console.error('Discord queue listener failed', error.message));
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
   if (process.env.BOT_GATEWAY_MODE === 'external') {
     const refreshBotStatus = async () => {
