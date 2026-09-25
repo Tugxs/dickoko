@@ -66,3 +66,23 @@ test('repeated malformed requests are also stopped at the site', async () => {
   assert.equal(calls, 3);
   assert.equal(responses[3].status, 403);
 });
+
+test('invalid requests from different bots trigger one outbound IP safety pause', async () => {
+  let calls = 0;
+  const gate = createDiscordRequestGate({ requestsPerSecond: 1_000, globalRequestsPerSecond: 1_000, invalidRequestLimit: 3, request: async () => { calls++; return new Response('{}', { status: 403 }); } });
+  for (const bot of ['one', 'two', 'three']) assert.equal((await gate(bot, 'GET /guilds/1', 'https://example.test', {})).status, 403);
+  const blocked = await gate('four', 'GET /guilds/1', 'https://example.test', {});
+  assert.equal(blocked.status, 503);
+  assert.equal(calls, 3);
+});
+
+test('shared rate limits do not count as invalid outbound requests', async () => {
+  let calls = 0;
+  const gate = createDiscordRequestGate({ requestsPerSecond: 1_000, globalRequestsPerSecond: 1_000, invalidRequestLimit: 1, request: async () => {
+    calls++;
+    return new Response('{"retry_after":1}', { status: 429, headers: { 'x-ratelimit-scope': 'shared' } });
+  } });
+  await gate('one', 'GET /guilds/1', 'https://example.test', {});
+  await gate('two', 'GET /guilds/1', 'https://example.test', {});
+  assert.equal(calls, 2);
+});
