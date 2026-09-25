@@ -4,6 +4,7 @@ import { ActivityType, Client, Events, GatewayIntentBits, PermissionFlagsBits, R
 import { BOT_COMMANDS, DEFAULT_BOT_COMMAND_KEYS, validBotCommandKeys } from './lib/bot-catalog.js';
 import { canonicalPlan, subscriptionAccess } from './lib/billing.js';
 import { claimSupportTicket, handleInteractiveButton, reopenSupportTicket, repairLegacyTicketControls, sendWelcomeCard } from './lib/interactive-systems.js';
+import { waitForGatewayLoginSlot } from './lib/gateway-login-gate.js';
 
 const BOT_NAME = "diskoko | ديسكوكو";
 
@@ -285,6 +286,7 @@ export async function startDiscordBot({ pool } = {}) {
 
   let timeout;
   try {
+    await waitForGatewayLoginSlot();
     await Promise.race([
       client.login(token),
       new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('Discord gateway connection timed out')), 60_000); }),
