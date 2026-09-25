@@ -93,6 +93,23 @@ test('AI bot card guides connection and sends the token only in the protected co
   dom.window.close();
 });
 
+test('server settings can select a customer bot while Diskoko is offline', async () => {
+  const response = url => url === `/api/ai/bot-connection?guildId=${guild.id}` ? { bot: null }
+    : url === '/api/ai/bot-connection' ? { bot: { id: 'bot-1', name: 'بوت العميل', online: true } }
+      : url === `/api/workspace/${guild.id}` ? { ...workspace, bot: { ...workspace.bot, online: false } }
+        : fixtureResponse(url);
+  const { dom, doc, requests } = await page('settings', response);
+  assert.match(doc.body.textContent, /بوت التنفيذ لهذا السيرفر/);
+  doc.querySelector('#settingsBotConnect').click();
+  doc.querySelector('#settingsBotToken').value = 'b'.repeat(60);
+  doc.querySelector('#settingsBotSave').click(); await settle();
+  const sent = requests.find(entry => entry.url === '/api/ai/bot-connection' && entry.options.method === 'POST');
+  assert.equal(JSON.parse(sent.options.body).guildId, guild.id);
+  assert.equal(JSON.parse(sent.options.body).token, 'b'.repeat(60));
+  assert.doesNotMatch(doc.body.textContent, /b{60}/);
+  dom.window.close();
+});
+
 test('change history counts applied structure and published giveaway as two completed actions', async () => {
   const response = url => url === `/api/workspace/${guild.id}` ? {
     ...workspace,

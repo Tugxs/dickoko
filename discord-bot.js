@@ -13,6 +13,7 @@ let state = {
   username: null,
   guilds: 0,
   memberJoins: false,
+  retryAt: null,
   error: null,
   commands: { registered: 0, failed: 0 },
 };
@@ -21,6 +22,15 @@ let retryTimer = null;
 let retryCount = 0;
 let starting = false;
 let memberIntentAllowed = true;
+let cooldownTableReady = false;
+
+function scheduleReconnect(retryMs) {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void startDiscordBot({ pool: databasePool });
+  }, retryMs).unref();
+}
 
 const COMMANDS = [
   BOT_COMMANDS.reduce((builder, item) => builder.addSubcommand(command => command.setName(item.key).setDescription(item.discordDescription)), new SlashCommandBuilder().setName('diskoko').setDescription('مساعد Diskoko لمجتمعك'))
@@ -117,6 +127,26 @@ export async function startDiscordBot({ pool } = {}) {
     return null;
   }
 
+  // Preserve Discord's gateway cooldown across web deploys. Otherwise every
+  // deployment would spend another /gateway/bot request while it is limited.
+  if (databasePool) {
+    try {
+      if (!cooldownTableReady) {
+        await databasePool.query('CREATE TABLE IF NOT EXISTS bot_gateway_cooldown (id SMALLINT PRIMARY KEY CHECK (id=1), retry_at TIMESTAMPTZ NOT NULL)');
+        cooldownTableReady = true;
+      }
+      const { rows } = await databasePool.query('SELECT retry_at FROM bot_gateway_cooldown WHERE id=1');
+      const remainingMs = Math.max(0, new Date(rows[0]?.retry_at || 0).getTime() - Date.now());
+      if (remainingMs > 0) {
+        state = { ...state, online: false, memberJoins: false, error: 'rate_limited', retryAt: rows[0].retry_at };
+        console.warn(`Discord gateway cooldown active; reconnect scheduled in ${Math.ceil(remainingMs / 1_000)}s`);
+        scheduleReconnect(remainingMs);
+        starting = false;
+        return null;
+      }
+    } catch (error) { console.error('Could not read Discord gateway cooldown', error.message); }
+  }
+
   // The intent is enabled in the Discord Developer Portal. Do not make a REST
   // request (or change application flags) before every gateway connection.
   const memberJoins = memberIntentAllowed;
@@ -159,6 +189,7 @@ export async function startDiscordBot({ pool } = {}) {
       username: readyClient.user.username,
       guilds: readyClient.guilds.cache.size,
       memberJoins,
+      retryAt: null,
       error: null,
       commands: { registered: 0, failed: 0 },
     };
@@ -262,17 +293,24 @@ export async function startDiscordBot({ pool } = {}) {
     starting = false;
     return client;
   } catch (error) {
-    console.error("Discord bot login failed", error.name === 'RateLimitError'
+    const rateLimited = String(error.name || '').startsWith('RateLimitError');
+    console.error("Discord bot login failed", rateLimited
       ? { name: error.name, route: error.route, scope: error.scope, retryAfterMs: error.retryAfter }
       : error);
     await client.destroy().catch(() => {});
     if (Number(error.code) === 4014 || /disallowed intents|4014/i.test(error.message || '')) memberIntentAllowed = false;
-    state = { ...state, online: false, memberJoins: false, error: error.name === 'RateLimitError' ? 'rate_limited' : 'login_failed' };
     retryCount++;
     const backoffMs = Math.min(300_000, 60_000 * 2 ** Math.min(retryCount - 1, 3));
-    const retryMs = Math.max(backoffMs, Math.min(3_600_000, Number(error.retryAfter) || 0) + 1_000);
+    const retryMs = Math.max(backoffMs, Math.min(2_147_000_000, Number(error.retryAfter) || 0) + 1_000);
+    const retryAt = new Date(Date.now() + retryMs);
+    state = { ...state, online: false, memberJoins: false, error: rateLimited ? 'rate_limited' : 'login_failed', retryAt: rateLimited ? retryAt.toISOString() : null };
+    if (rateLimited && error.route === '/gateway/bot' && databasePool) {
+      try {
+        await databasePool.query('INSERT INTO bot_gateway_cooldown(id,retry_at) VALUES(1,$1) ON CONFLICT(id) DO UPDATE SET retry_at=EXCLUDED.retry_at', [retryAt]);
+      } catch (saveError) { console.error('Could not save Discord gateway cooldown', saveError.message); }
+    }
     console.warn(`Discord bot reconnect scheduled in ${Math.ceil(retryMs / 1_000)}s`);
-    if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; void startDiscordBot({ pool: databasePool }); }, retryMs).unref();
+    scheduleReconnect(retryMs);
     starting = false;
     return null;
   } finally { clearTimeout(timeout); }

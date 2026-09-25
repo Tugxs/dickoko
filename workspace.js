@@ -150,7 +150,7 @@ function renderServers() {
 }
 function connectionNotice() {
   const d = state.data; if (d.connection.status === 'installed' && d.connection.readable) return '';
-  const messages = { install_required: 'أكمل ربط Diskoko لتظهر القنوات والرتب وتبدأ إدارة سيرفرك.', permissions_insufficient: 'لم يتمكن البوت من الوصول إلى السيرفر. راجع الربط والصلاحيات.', unavailable: 'تعذر الاتصال بـ Discord الآن. هذا لا يعني أن البوت غير مثبت.' };
+  const messages = { install_required: 'اربط بوت ديسكوكو أو بوتك الخاص لتظهر القنوات والرتب وتبدأ إدارة سيرفرك.', permissions_insufficient: 'لم يتمكن البوت المختار من الوصول إلى السيرفر. راجع الربط والصلاحيات.', unavailable: 'تعذر الاتصال بـ Discord الآن. هذا لا يعني أن البوت غير مثبت.' };
   return `<div class="notice"><div><b>${messages[d.connection.status] || 'تعذر قراءة بعض بيانات السيرفر.'}</b><p>لن تتاح التعديلات حتى يكتمل التحقق من السيرفر.</p></div>${action('مراجعة الاتصال', 'settings')}</div>`;
 }
 function changeName(change) { return change.plan?.name || ({ gaming: 'قالب مجتمع ألعاب', support: 'قالب مركز دعم', study: 'قالب مساحة دراسة', custom: 'تعديلات القنوات والرتب' }[change.template_key]) || 'خطة تغييرات'; }
@@ -966,12 +966,46 @@ function safety() {
 function settings() {
   const d = state.data;
   $('#workspace').innerHTML = head('إعدادات مساحة مجتمعك.', 'اتصال السيرفر وتفضيلات النشاط، في مكان واحد.') + `<div class="steps"><span class="step done">✓ الحساب مرتبط</span><span class="step ${d.connection.status === 'installed' ? 'done' : ''}">${d.connection.status === 'installed' ? '✓' : '2'} إضافة Diskoko</span><span class="step ${d.connection.readable ? 'done' : ''}">${d.connection.readable ? '✓' : '3'} قراءة السيرفر</span></div><div class="grid-2">${panel('الاتصال بـ Discord', `<div class="panel-body form-grid"><div class="server-title"><span class="server-image">${esc(d.guild.name.slice(0, 1))}</span><div><h3>${esc(d.guild.name)}</h3><small>${d.guild.owner ? 'أنت مالك السيرفر' : 'لديك صلاحية الإدارة'}</small></div></div><div class="row"><div class="row-main"><b>حالة الربط</b><small>آخر تحقق: ${date(d.connection.checked_at)}</small></div>${status(d.connection.status)}</div><div class="actions"><button class="btn primary" id="installBot">${d.connection.status === 'installed' ? 'مراجعة ربط البوت ↗' : 'إضافة Diskoko إلى السيرفر ↗'}</button><button class="btn secondary" id="verifyBot">إعادة التحقق</button></div><p class="form-note">بعد العودة من Discord سنعيد التحقق تلقائيًا. لا نطلب صلاحية Administrator.</p><details><summary>تفاصيل السيرفر</summary><p><code>${esc(state.guild)}</code></p><button class="btn text" id="copyGuild">نسخ المعرّف</button></details></div>`)}${panel('خصوصية إحصاءات النشاط', `<div class="panel-body form-grid"><div>${badge(d.preferences.analytics_enabled ? 'جمع النشاط مفعّل' : 'جمع النشاط غير مفعّل', d.preferences.analytics_enabled ? 'good' : 'neutral')}</div><p>يجمع البوت عدد الرسائل وأسماء المشاركين فقط، دون محتوى الرسائل، لمدة 30 يومًا. الإيقاف يمنع جمع أحداث جديدة.</p><button class="btn secondary" id="toggleAnalytics">${d.preferences.analytics_enabled ? 'إيقاف جمع النشاط' : 'تفعيل جمع النشاط'}</button>${action('عرض التحليلات', 'analytics', 'text')}</div>`)}</div>${panel('نسخة من البنية الحالية', '<div class="panel-body"><p>نزّل القنوات والرتب للمراجعة أو التوثيق. الملف لا يحتوي رسائل الأعضاء، ولا يوفّر استعادة تلقائية للسيرفر.</p><div class="actions" style="margin-top:18px"><button class="btn secondary" id="exportStructure">تصدير بنية السيرفر ↓</button></div></div>')}`;
+  $('#workspace .grid-2').insertAdjacentHTML('afterend', panel('بوت التنفيذ لهذا السيرفر', '<div class="panel-body form-grid"><p>اختر بوت ديسكوكو أو اربط بوتك الخاص. البوت المختار ينفذ القوالب، إعدادات السيرفر، ورسائل AI بعد مراجعتك.</p><div id="settingsBotConnection" role="status">جارٍ التحقق من البوت المختار…</div><a href="/ai-bot-guide.html" target="_blank" rel="noopener noreferrer">شرح إنشاء بوتك وربطه ↗</a></div>'));
+  void loadSettingsBotConnection();
   $('#installBot').onclick = run(async () => { const result = await api(`/api/guilds/${encodeURIComponent(state.guild)}/install-url`); window.open(result.url, '_blank', 'noopener'); state.awaitingInstall = true; });
   $('#verifyBot').onclick = run(async event => { event.currentTarget.disabled = true; try { await loadGuild(); } finally { $('#verifyBot') && ($('#verifyBot').disabled = false); } });
   $('#copyGuild').onclick = run(async () => { await navigator.clipboard.writeText(state.guild); toast('نُسخ معرّف السيرفر.'); });
   $('#toggleAnalytics').onclick = () => confirmDialog(d.preferences.analytics_enabled ? 'إيقاف جمع النشاط؟' : 'تفعيل جمع النشاط؟', 'يؤثر التغيير في جمع أحداث الرسائل الجديدة. لا يُحفظ محتوى الرسائل، وتبقى الأعداد السابقة حتى نهاية مدة الاحتفاظ البالغة 30 يومًا.', 'تأكيد', async () => { await api(`/api/workspace/${encodeURIComponent(state.guild)}/preferences`, { method: 'PUT', body: JSON.stringify({ analytics_enabled: !d.preferences.analytics_enabled }) }); closeDialog(); await loadGuild(); });
   $('#exportStructure').disabled = !d.connection.readable;
   $('#exportStructure').onclick = () => download('diskoko-server-structure.json', { exported_at: new Date().toISOString(), guild: { id: state.guild, name: d.guild.name }, channels: d.channels, roles: d.roles });
+}
+async function loadSettingsBotConnection() {
+  const guild = state.guild, epoch = state.epoch, target = $('#settingsBotConnection');
+  if (!target) return;
+  try {
+    const { bot } = await api(`/api/ai/bot-connection?guildId=${encodeURIComponent(guild)}`);
+    if (guild !== state.guild || epoch !== state.epoch || screen() !== 'settings') return;
+    target.innerHTML = bot
+      ? `<div class="row"><div class="row-main"><b>${esc(bot.name)}</b><small>بوتك الخاص · ${bot.online ? 'متصل وجاهز لتنفيذ أدوات السيرفر' : 'غير متصل؛ أعد الربط أو انتظر عودة الاتصال'}</small></div>${badge(bot.online ? 'متصل' : 'غير متصل', bot.online ? 'good' : 'warn')}</div><button class="btn secondary" id="settingsBotDisconnect" type="button">فصل بوتي والعودة لبوت ديسكوكو</button>`
+      : `<div class="row"><div class="row-main"><b>بوت ديسكوكو</b><small>البوت الافتراضي لهذا السيرفر</small></div>${badge(state.data.bot.online ? 'متصل' : 'غير متصل', state.data.bot.online ? 'good' : 'warn')}</div><button class="btn primary" id="settingsBotConnect" type="button">ربط بوتي الخاص</button>`;
+    if (bot) $('#settingsBotDisconnect').onclick = run(async () => {
+      if (!window.confirm('سيعود التنفيذ إلى بوت ديسكوكو. المنشورات التفاعلية السابقة التي أنشأها بوتك قد تتوقف. هل تريد المتابعة؟')) return;
+      await api('/api/ai/bot-connection', { method: 'DELETE', body: JSON.stringify({ guildId: guild }) });
+      await loadGuild();
+      toast('فُصل بوتك الخاص عن هذا السيرفر.');
+    });
+    else $('#settingsBotConnect').onclick = () => {
+      modal('ربط بوت التنفيذ الخاص بسيرفرك', `<p>أنشئ بوتًا في Discord Developer Portal وأضفه إلى ${esc(state.data.guild.name)}، ثم انسخ رمزه هنا. يُحفظ الرمز مشفرًا ولا يظهر بعد الحفظ.</p><label>رمز البوت<input id="settingsBotToken" type="password" autocomplete="off" spellcheck="false" placeholder="ألصق Bot Token هنا"></label><p class="form-note">فعّل Server Members Intent إن أردت الترحيب التلقائي. لا ترسل الرمز في المحادثة.</p><a href="/ai-bot-guide.html" target="_blank" rel="noopener noreferrer">شرح الربط ↗</a>`, '<button class="btn secondary" id="settingsBotCancel" type="button">إلغاء</button><button class="btn primary" id="settingsBotSave" type="button">تحقق واربط</button>');
+      $('#settingsBotCancel').onclick = closeDialog;
+      $('#settingsBotSave').onclick = run(async () => {
+        const button = $('#settingsBotSave'); button.disabled = true;
+        try {
+          await api('/api/ai/bot-connection', { method: 'POST', body: JSON.stringify({ guildId: guild, token: $('#settingsBotToken').value }) });
+          closeDialog(); await loadGuild(); toast('اتصل بوتك الخاص وأصبح بوت التنفيذ لهذا السيرفر.');
+        } catch (error) {
+          const message = $('#dialogError'); message.textContent = error.message;
+          if (error.inviteUrl?.startsWith('https://discord.com/oauth2/authorize?')) { const link = document.createElement('a'); link.href = error.inviteUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'أضف البوت إلى السيرفر ↗'; message.append(document.createElement('br'), link); }
+          message.hidden = false; button.disabled = false;
+        }
+      });
+    };
+  } catch (error) { if (guild === state.guild && screen() === 'settings') target.textContent = error.message; }
 }
 async function start() {
   try { state.account = await api('/api/account/overview'); await loadGuild(); }
@@ -985,9 +1019,3 @@ window.addEventListener('hashchange', () => { render(); $('#workspace').focus({ 
 window.addEventListener('focus', () => { if (state.awaitingInstall) { state.awaitingInstall = false; loadGuild(); } });
 $('#dialog').addEventListener('cancel', event => { if ($('#applyPlan')?.textContent === 'جارٍ التطبيق…') event.preventDefault(); });
 start();
-
-
-
-
-
-

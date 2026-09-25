@@ -17,7 +17,7 @@ import { mountNativeEvents } from "./lib/native-events.js";
 import { isPublicStaticPath } from "./lib/public-files.js";
 import { BILLING_PLANS, BILLING_STATUSES, canonicalPlan, entitlementsFor, publicPlanCatalog, subscriptionAccess, usageAlert, upgradeQuote } from "./lib/billing.js";
 import { publicError } from "./lib/http-error.js";
-import { discordRetryAfterMs } from "./lib/discord-rate-limit.js";
+import { createDiscordRequestGate, discordRetryAfterMs } from "./lib/discord-rate-limit.js";
 import { botTokenForPublication, connectedBot, connectedBotMetadata, migrateAiBotConnections, mountAiBotConnections, restoreAiBots } from "./lib/ai-bot-connections.js";
 
 const { Pool } = pg;
@@ -28,6 +28,7 @@ const PORT = Number(process.env.PORT || 10000);
 const BASE_URL = process.env.BASE_URL?.replace(/\/$/, "") || `http://localhost:${PORT}`;
 const FRONTEND_URL = process.env.FRONTEND_URL?.replace(/\/$/, "") || BASE_URL;
 const DISCORD_API = "https://discord.com/api/v10";
+const discordRequestGate = createDiscordRequestGate();
 const REQUIRED_BOT_PERMISSIONS = String(1024n | 2048n | 16n | 268435456n | 2147483648n | 65536n);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
@@ -374,14 +375,33 @@ async function refreshDiscordUserToken(user) {
   return tokens.access_token;
 }
 async function discordBotFetch(pathname, options = {}) {
-  const token = requestContext.getStore()?.aiBotToken || process.env.DISCORD_BOT_TOKEN;
+  const context = requestContext.getStore();
+  if (context?.selectedBotOffline) return { ok: false, status: 503, data: { message: 'بوت السيرفر المرتبط غير متصل الآن' } };
+  const guildId = /^\/guilds\/(\d{17,20})(?:\/|\?|$)/.exec(pathname)?.[1];
+  let selectedToken = null;
+  if (guildId && !context?.aiBotToken && !context?.selectedBotId) {
+    const selected = await connectedBotMetadata(pool, guildId);
+    if (selected) {
+      if (!selected.online) return { ok: false, status: 503, data: { message: 'بوت السيرفر المرتبط غير متصل الآن' } };
+      const bot = await connectedBot(pool, guildId);
+      selectedToken = bot.token;
+      if (context) { context.aiBotToken = bot.token; context.aiBotId = bot.id; context.aiBotMemberJoins = selected.memberJoins; context.selectedBotId = bot.id; context.selectedBot = selected; }
+    }
+  }
+  const token = context?.aiBotToken || selectedToken || process.env.DISCORD_BOT_TOKEN;
   if (!token) return { ok: false, status: 503, data: { message: "Discord bot غير مهيأ" } };
-  const response = await fetch(`${DISCORD_API}${pathname}`, { signal: AbortSignal.timeout(20000), ...options, headers: { Authorization: `Bot ${token}`, ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) } });
+  const authorization = options.headers?.Authorization || `Bot ${token}`;
+  const botKey = crypto.createHash('sha256').update(authorization).digest('hex');
+  const route = `${String(options.method || 'GET').toUpperCase()} ${pathname}`;
+  const response = await discordRequestGate(botKey, route, `${DISCORD_API}${pathname}`, { signal: AbortSignal.timeout(20000), ...options, headers: { Authorization: `Bot ${token}`, ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) } });
   let data = null; try { data = await response.json(); } catch { data = {}; }
   return { ok: response.ok, status: response.status, data, headers: response.headers };
 }
 const guildRateLimitUntil = new Map();
 async function manageableGuilds(user) {
+  const context = requestContext.getStore();
+  const cached = context?.manageableGuilds?.get(user.id);
+  if (cached) return cached;
   const blockedUntil = guildRateLimitUntil.get(user.id) || 0;
   if (blockedUntil > Date.now()) throw problem('Discord حدّد عدد الطلبات مؤقتًا. سنعيد التحقق عند انتهاء المهلة.', 503);
   guildRateLimitUntil.delete(user.id);
@@ -415,7 +435,13 @@ async function manageableGuilds(user) {
   }
   const guilds = await response.json().catch(() => null);
   if (!Array.isArray(guilds)) throw problem('تعذر قراءة رد Discord مؤقتًا. أعد المحاولة بعد قليل.', 503);
-  return guilds.filter(manageable);
+  const result = guilds.filter(manageable);
+  if (context) { context.manageableGuilds ||= new Map(); context.manageableGuilds.set(user.id, result); }
+  return result;
+}
+function executionBotStatus() {
+  const selected = requestContext.getStore()?.selectedBot;
+  return selected ? { configured: true, online: selected.online, username: selected.name, guilds: selected.online ? 1 : 0, memberJoins: selected.memberJoins, custom: true, error: selected.online ? null : 'connection_offline' } : getDiscordBotStatus();
 }
 async function authorizedGuild(user, guildId) {
   return (await manageableGuilds(user)).find((guild) => String(guild.id) === String(guildId)) || null;
@@ -539,6 +565,32 @@ async function requireWriteAccess(req, res, next) {
     next();
   } catch (error) { next(error); }
 }
+
+// Pick the bot for this server before any server tools or AI templates call
+// Discord. The existing per-route authorization still protects every action.
+app.use(async (req, _res, next) => {
+  const pathname = req.originalUrl.split('?')[0];
+  const match = /^\/api\/(?:guilds|workspace)\/(\d{17,20})(?:\/|$)/.exec(pathname);
+  const guildId = match?.[1] || (['/api/change-sets', '/api/ai/requests'].includes(pathname) || /^\/api\/change-sets\/[^/]+\/apply$/.test(pathname) ? String(req.body?.guildId || '') : '');
+  if (!/^\d{17,20}$/.test(guildId)) return next();
+  try {
+    const user = await currentUser(req);
+    if (!user || !await authorizedGuild(user, guildId)) return next();
+    const selected = await connectedBotMetadata(pool, guildId);
+    if (selected) {
+      const context = requestContext.getStore();
+      context.selectedBot = selected;
+      context.selectedBotId = selected.id;
+      if (selected.online) {
+        const bot = await connectedBot(pool, guildId);
+        context.aiBotToken = bot.token;
+        context.aiBotId = bot.id;
+        context.aiBotMemberJoins = selected.memberJoins;
+      } else context.selectedBotOffline = true;
+    }
+    next();
+  } catch (error) { next(error); }
+});
 
 function mailTransport() {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
@@ -843,7 +895,7 @@ app.get("/api/guilds/:guildId/summary", requireUser, async (req, res, next) => {
     ]);
     const channelRows = channels.ok && Array.isArray(channels.data) ? channels.data : [];
     const roleRows = roles.ok && Array.isArray(roles.data) ? roles.data : [];
-    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { online: getDiscordBotStatus().online, installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, usage: monthUsage.rows[0] || { commands: 0, succeeded: 0, failed: 0 }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
+    res.json({ guild: { id: guild.id, name: guild.name, icon: guild.icon, owner: guild.owner, permissions: guild.permissions, approximate_member_count: guild.approximate_member_count || null }, connection: connection.rows[0] || { install_status: "discovered" }, bot: { ...executionBotStatus(), installed: channels.ok, permissions: REQUIRED_BOT_PERMISSIONS }, counts: { channels: channelRows.filter((item) => item.type !== 4).length, categories: channelRows.filter((item) => item.type === 4).length, roles: roleRows.length, members: guild.approximate_member_count || null }, usage: monthUsage.rows[0] || { commands: 0, succeeded: 0, failed: 0 }, draft: draft.rows[0] || null, changeSets: changes.rows, activity: events.rows });
   } catch (e) { next(e); }
 });
 app.get("/api/guilds/:guildId/change-sets", requireUser, async (req, res, next) => { try { const guild = await authorizedGuild(req.user, req.params.guildId); if (!guild) return res.status(403).json({ error: "لا تملك صلاحية إدارة هذا السيرفر" }); const rows = await pool.query("SELECT id,template_key,status,plan,created_at,updated_at FROM change_sets WHERE user_id=$1 AND guild_id=$2 ORDER BY updated_at DESC LIMIT 30", [req.user.id, guild.id]); res.json({ changeSets: rows.rows }); } catch (e) { next(e); } });
@@ -876,9 +928,9 @@ app.post(/^\/api\/ai\/requests\/[^/]+\/(?:launch-interactive|send-message|create
   }
   next();
 } catch (error) { next(error); } });
-mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: getDiscordBotStatus });
+mountWorkspace(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, audit, requirePlanCapacity, entitlementsFor, templates: TEMPLATES, makeTemplatePlan, botStatus: executionBotStatus });
 mountLocalAi(app, { pool, requireUser, requireWriteAccess, authorizedGuild, canonicalPlan, discordBotFetch, requirePlanCapacity });
-mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus: () => requestContext.getStore()?.aiBotId ? { online: true, memberJoins: requestContext.getStore().aiBotMemberJoins } : getDiscordBotStatus() });
+mountInteractiveSystems(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity, getDiscordBotStatus: executionBotStatus });
 mountNativeEvents(app, { pool, requireUser, requireWriteAccess, authorizedGuild, discordBotFetch, requirePlanCapacity });
 app.get("/api/change-sets/:id", requireUser, async (req, res, next) => { try { const changeSet = (await pool.query("SELECT * FROM change_sets WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id])).rows[0]; if (!changeSet) return res.status(404).json({ error: "خطة التغيير غير موجودة" }); const operations = (await pool.query("SELECT * FROM change_operations WHERE change_set_id=$1 ORDER BY id", [changeSet.id])).rows; res.json({ changeSet, operations }); } catch (e) { next(e); } });
 app.get("/api/projects", requireUser, async (req, res, next) => { try { const { rows } = await pool.query("SELECT id,name,guild_id,design,deployment_status,archived_at,created_at,updated_at FROM projects WHERE user_id=$1 ORDER BY archived_at NULLS FIRST,updated_at DESC", [req.user.id]); res.json({ projects: rows }); } catch (e) { next(e); } });
@@ -1021,7 +1073,10 @@ migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).th
   app.listen(PORT, "0.0.0.0", () => console.log(`diskoko running on ${PORT}`));
   void startDiscordBot({ pool });
   void restoreAiBots(pool).catch(error => console.error('Connected AI bots restore failed', error.message));
-  startScheduleRunner({ pool, discordBotFetch, authorizedGuild });
+  startScheduleRunner({ pool, authorizedGuild, discordBotFetch: async (pathname, options, job) => {
+    const bot = await botTokenForPublication(pool, job.guild_id);
+    return discordBotFetch(pathname, bot ? { ...options, headers: { ...options.headers, Authorization: `Bot ${bot.token}` } } : options);
+  } });
   startGiveawayRunner({ pool, discordBotFetch: async (pathname, options, giveaway) => {
     if (!giveaway?.publishing_bot_id) return discordBotFetch(pathname, options);
     const bot = await connectedBot(pool, giveaway.guild_id);
@@ -1029,4 +1084,5 @@ migrate().then(() => migrateWorkspace(pool)).then(() => migrateLocalAi(pool)).th
     return discordBotFetch(pathname, { ...options, headers: { ...options.headers, Authorization: `Bot ${bot.token}` } });
   } });
 }).catch((error) => { console.error("Database migration failed", error); process.exit(1); });
+
 
