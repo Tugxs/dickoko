@@ -56,6 +56,7 @@ test('ready templates open as an independent section with both sources and a Dis
   assert.ok(doc.querySelector('.ready-executor-panel'));
   assert.equal(doc.querySelectorAll('.ready-executor-option').length, 2);
   assert.match(doc.querySelector('.ready-executor-option strong').textContent, /ديسكوكو/);
+  assert.equal(doc.querySelector('.ready-executor-option img')?.getAttribute('src'), '/assets/diskoko-logo.png');
   doc.querySelector('[data-ready-choose="server-my-arabic"]').click();
   assert.ok(doc.querySelector('#readyPreview .ready-discord'));
   assert.ok(doc.querySelector('input[name="readyMode"][value="replace"]'));
