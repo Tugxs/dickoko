@@ -94,6 +94,17 @@ test('rules are checked locally and publish with the selected card style', async
   assert.deepEqual(sent.allowed_mentions, { parse: [] });
 });
 
+test('rules publication reports missing channel permissions clearly', async () => {
+  let launch; let failure;
+  const item = { id: 'request', guild_id: 'guild', proposal: { interactive: { kind: 'rules', title: 'القوانين' } } };
+  const client = { async query(sql) { return sql.startsWith('SELECT id,guild_id') ? { rows: [item] } : { rows: [] }; }, release() {} };
+  const app = { post(path, ...handlers) { if (path.endsWith('/launch-interactive')) launch = handlers.at(-1); } };
+  mountInteractiveSystems(app, { pool: { connect: async () => client }, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => true, requirePlanCapacity: async () => {}, discordBotFetch: async path => path.endsWith('/messages') ? { ok: false, status: 403, data: { code: 50013 } } : { ok: true, data: { id: '123456789012345678', guild_id: 'guild', type: 0 } } });
+  await launch({ params: { id: 'request' }, user: { id: 'user' }, body: { confirmed: true, channelId: '123456789012345678', title: 'القوانين', description: '', singleText: 'الاحترام', style: 'single' } }, { json() {} }, error => { failure = error; });
+  assert.equal(failure.status, 409);
+  assert.match(failure.message, /Send Messages وEmbed Links/);
+});
+
 test('only support role or server manager can claim a ticket', async () => {
   const replies = [];
   let claims = 0;
