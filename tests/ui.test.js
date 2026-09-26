@@ -53,9 +53,9 @@ test('ready templates open as an independent section with both sources and a Dis
   assert.match(doc.body.textContent, /Streamer Community/);
   assert.match(doc.body.textContent, /Diskoko Gaming Arabic/);
   assert.match(doc.body.textContent, /Diskoko Streamer/);
-  assert.ok(doc.querySelector('.ready-executor-notice'));
-  assert.equal(doc.querySelectorAll('.ready-bot-option').length, 2);
-  assert.match(doc.querySelector('.ready-bot-option strong').textContent, /ديسكوكو/);
+  assert.ok(doc.querySelector('.ready-executor-panel'));
+  assert.equal(doc.querySelectorAll('.ready-executor-option').length, 2);
+  assert.match(doc.querySelector('.ready-executor-option strong').textContent, /ديسكوكو/);
   doc.querySelector('[data-ready-choose="server-my-arabic"]').click();
   assert.ok(doc.querySelector('#readyPreview .ready-discord'));
   assert.ok(doc.querySelector('input[name="readyMode"][value="replace"]'));
