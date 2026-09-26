@@ -29,6 +29,7 @@ test('untouched library templates open editable task-specific drafts', () => {
     ['الرسائل', 'إعلان فعالية', 'جهز إعلان فعالية [الاسم] في #[القناة]', 'event'],
     ['إدارة المجتمع', 'حدث Discord مجدول', 'أنشئ حدث Discord بعنوان [اسم الحدث]', 'scheduled_event'],
     ['الرسائل', 'رسالة ترحيب تلقائية', 'جهز ترحيبًا تلقائيًا في #[القناة]', 'welcome'],
+    ['الرسائل', 'قوانين السيرفر', 'جهز بطاقة قوانين لسيرفري في #[القناة]', 'rules'],
   ];
   for (const [category, title, prompt, kind] of cases) {
     const draft = libraryDraftProposal({ mode: 'execute', category, title, prompt });
@@ -55,7 +56,7 @@ test('message templates create review cards while retired templates cannot creat
 });
 
 test('every executable library template has a typed review path when sent unchanged', () => {
-  assert.equal(aiPromptLibrary.length, 11);
+  assert.equal(aiPromptLibrary.length, 12);
   assert.equal(new Set(aiPromptLibrary.map(item => `${item.category}/${item.title}`)).size, aiPromptLibrary.length);
   for (const task of aiPromptLibrary) {
     const draft = libraryDraftProposal({ ...task, mode: 'execute' });
@@ -80,4 +81,3 @@ test('startup removes saved retired library drafts using the same catalog as the
   assert.ok(calls.some(([sql]) => sql.includes("proposal->'interactive'->>'kind'='download'")));
   assert.ok(calls.some(([sql]) => sql.includes('DROP TABLE IF EXISTS diskoko_download_cards')));
 });
-

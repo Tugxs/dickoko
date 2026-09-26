@@ -198,7 +198,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
   assert.ok(doc.querySelector('[data-ai-delete]'));
-  assert.equal(doc.querySelectorAll('.ai-library-item').length, 11);
+  assert.equal(doc.querySelectorAll('.ai-library-item').length, 12);
   assert.equal(doc.querySelectorAll('.ai-library-item').length, doc.querySelectorAll('.ai-library-item span').length);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.equal(doc.querySelector('[data-ai-plan]'), null);
@@ -347,6 +347,28 @@ test('GIF is selectable throughout library reviews and welcome permits avatar co
   assert.equal(doc.querySelector('#aiSpecialPreviewImage img').getAttribute('src'), 'blob:welcome-gif');
   assert.equal(doc.querySelector('#aiWelcomePreviewAvatar').hidden, true);
   assert.equal(doc.querySelector('#aiWelcomeCompositeControls').hidden, false);
+  dom.window.close();
+});
+test('rules review previews all three layouts before Discord publication', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const task = aiPromptLibrary.find(item => item.kind === 'rules');
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: task.title, updated_at: '2026-09-24T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: task.prompt, answer: 'بطاقة مراجعة', status: 'completed', library_mode: 'execute', library_title: task.title, library_category: task.category, proposal: { interactive: { kind: 'rules', title: 'القوانين', description: 'اقرأ قبل المشاركة', rules: ['احترم الآخرين', 'تجنب الإزعاج'], style: 'single' }, draft: true } }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc } = await page('assistant', response);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  doc.querySelector('[data-ai-interactive]').click();
+  assert.match(doc.querySelector('#aiSpecialPreviewBody').textContent, /احترم الآخرين/);
+  assert.match(doc.querySelector('#aiSpecialImage').accept, /image\/gif/);
+  const style = doc.querySelector('#aiRulesStyle');
+  style.value = 'sections'; style.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelectorAll('.ai-rules-field').length, 2);
+  style.value = 'cards'; style.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelectorAll('.ai-rules-separate-card').length, 2);
+  assert.equal(doc.querySelector('#aiSpecialPreviewButton').hidden, true);
   dom.window.close();
 });
 test('native Discord event opens location-aware editor with live preview', async () => {
