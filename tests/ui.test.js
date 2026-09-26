@@ -56,6 +56,7 @@ test('ready templates open as an independent section with both sources and a Dis
   assert.ok(doc.querySelector('.ready-executor-panel'));
   assert.equal(doc.querySelectorAll('.ready-executor-option').length, 2);
   assert.match(doc.querySelector('.ready-executor-option strong').textContent, /ديسكوكو/);
+  assert.match(doc.querySelector('.bot-hierarchy-notice').textContent, /Administrator/);
   assert.equal(doc.querySelector('.ready-executor-option img')?.getAttribute('src'), '/assets/diskoko-logo.png');
   doc.querySelector('[data-ready-choose="server-my-arabic"]').click();
   assert.ok(doc.querySelector('#readyPreview .ready-discord'));
@@ -161,6 +162,7 @@ test('community ideas are selectable for follow-up without a publish-the-list bu
     return fixtureResponse(url);
   };
   const { dom, doc } = await page('assistant', response);
+  assert.match(doc.querySelector('.bot-hierarchy-notice').textContent, /رتبة.*البوت|Administrator/);
   doc.querySelector('.ai-conversation').click(); await settle();
   assert.equal(doc.querySelectorAll('[data-ai-choice]').length, 2);
   assert.equal(doc.querySelector('[data-ai-publish-answer]'), null);
