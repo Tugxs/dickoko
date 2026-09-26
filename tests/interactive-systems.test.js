@@ -48,6 +48,20 @@ test('welcome activation checks only its selected Discord channel', async () => 
   assert.equal(response.activated, true);
 });
 
+test('invalid composited welcome GIF returns a useful error before Discord is queried', async () => {
+  let launch; let statusCode; let response; const paths = [];
+  const item = { id: 'request', guild_id: 'guild', proposal: { interactive: { kind: 'welcome', title: 'مرحبًا', description: 'أهلًا {member}' } } };
+  const client = { async query(sql) { return sql.startsWith('SELECT id,guild_id') ? { rows: [item] } : { rows: [] }; }, release() {} };
+  const app = { post(path, ...handlers) { if (path.endsWith('/launch-interactive')) launch = handlers.at(-1); } };
+  mountInteractiveSystems(app, { pool: { connect: async () => client }, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => { paths.push('authorization'); return true; }, requirePlanCapacity: async () => {}, getDiscordBotStatus: () => ({ online: true, memberJoins: true }), discordBotFetch: async path => { paths.push(path); return { ok: true }; } });
+  const gif = { mime: 'image/gif', base64: Buffer.from('GIF89a\0\0').toString('base64') };
+  const req = { params: { id: 'request' }, user: { id: 'user' }, body: { confirmed: true, channelId: '123456789012345678', title: 'مرحبًا', description: 'أهلًا {member}', composite: true, media: gif } };
+  await launch(req, { status(code) { statusCode = code; return this; }, json(value) { response = value; return this; } }, error => { throw error; });
+  assert.equal(statusCode, 400);
+  assert.match(response.error, /GIF/);
+  assert.deepEqual(paths, []);
+});
+
 test('incomplete interactive template never queries Discord', async () => {
   let launch; const paths = []; let statusCode;
   const item = { id: 'request', guild_id: 'guild', proposal: { interactive: { kind: 'giveaway', prize: '', durationMinutes: 1, winnerCount: 1 } } };
