@@ -31,11 +31,25 @@ test('queued multipart request preserves files, encrypts bot token, and returns 
   assert.equal((await requests[0].options.body.get('files[0]').arrayBuffer()).byteLength, 6);
 });
 
+test('queued JSON messages keep application/json when sent after a multipart message', async () => {
+  let inserted;
+  const pool = { query: async (sql, args = []) => {
+    if (sql.startsWith('SELECT count(')) return { rows: [{ total: 0, bot: 0 }] };
+    if (sql.startsWith('INSERT INTO discord_jobs(')) inserted = args;
+    if (sql.startsWith('SELECT status,response_status')) return { rows: [{ status: 'done', response_status: 200, response_body: '{"id":"next-page"}', response_headers: {} }] };
+    return { rows: [] };
+  } };
+  await enqueueDiscordJob(pool, { botKey: 'bot-a', route: 'POST /channels/123/messages', pathname: '/channels/123/messages', authorization: 'Bot secret-test-token', options: { method: 'POST', body: JSON.stringify({ embeds: [{ title: 'تابع القوانين' }] }) } });
+  await executeDiscordJob(pool, { id: inserted[0], bot_key: 'bot-a', route: inserted[2], pathname: inserted[3], method: 'POST', authorization_cipher: inserted[5], headers: {}, body: JSON.parse(inserted[7]) });
+  assert.equal(requests.at(-1).options.headers['Content-Type'], 'application/json');
+});
+
 test('full bot queue refuses a request before it reaches Discord', async () => {
+  const before = requests.length;
   const pool = { query: async () => ({ rows: [{ total: 80, bot: 80 }] }) };
   const result = await enqueueDiscordJob(pool, { botKey: 'bot-a', route: 'GET /guilds/123', pathname: '/guilds/123', authorization: 'Bot token' });
   assert.equal(result.status, 503);
-  assert.equal(requests.length, 1);
+  assert.equal(requests.length, before);
 });
 
 test('Discord retry-after is persisted for the bot route across worker restarts', async () => {

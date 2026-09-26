@@ -56,7 +56,7 @@ test('message templates create review cards while retired templates cannot creat
 });
 
 test('every executable library template has a typed review path when sent unchanged', () => {
-  assert.equal(aiPromptLibrary.length, 12);
+  assert.equal(aiPromptLibrary.length, 13);
   assert.equal(new Set(aiPromptLibrary.map(item => `${item.category}/${item.title}`)).size, aiPromptLibrary.length);
   for (const task of aiPromptLibrary) {
     const draft = libraryDraftProposal({ ...task, mode: 'execute' });

@@ -198,7 +198,7 @@ test('AI chat exposes reviewed Discord actions, image attachment and voice trans
   const { dom, doc } = await page('assistant', response);
   doc.querySelector('.ai-conversation').click(); await settle();
   assert.ok(doc.querySelector('[data-ai-delete]'));
-  assert.equal(doc.querySelectorAll('.ai-library-item').length, 12);
+  assert.equal(doc.querySelectorAll('.ai-library-item').length, 13);
   assert.equal(doc.querySelectorAll('.ai-library-item').length, doc.querySelectorAll('.ai-library-item span').length);
   assert.ok(doc.querySelector('#aiVoice'));
   assert.equal(doc.querySelector('[data-ai-plan]'), null);
@@ -379,6 +379,26 @@ test('rules review previews all three layouts before Discord publication', async
   assert.equal(doc.querySelectorAll('.ai-rules-separate-card').length, 2);
   assert.match(doc.querySelector('.ai-rules-separate-card').textContent, /الاحترام/);
   assert.equal(doc.querySelector('#aiSpecialPreviewButton').hidden, true);
+  dom.window.close();
+});
+test('channel control library opens a channel-specific permission review', async () => {
+  const conversationId = '11111111-1111-4111-8111-111111111111';
+  const task = aiPromptLibrary.find(item => item.kind === 'channel_control');
+  const response = url => {
+    if (url === '/api/ai/status') return { available: true, planEnabled: true };
+    if (url.startsWith('/api/ai/conversations?')) return { conversations: [{ id: conversationId, title: task.title, updated_at: '2026-09-24T00:00:00Z' }] };
+    if (url === `/api/ai/conversations/${conversationId}/messages`) return { messages: [{ id: '22222222-2222-4222-8222-222222222222', prompt: task.prompt, answer: 'مراجعة القناة', status: 'completed', library_mode: 'execute', library_title: task.title, library_category: task.category, proposal: { interactive: { kind: 'channel_control', channel: 'general', mode: 'locked', roleIds: [] }, draft: true } }] };
+    return fixtureResponse(url);
+  };
+  const { dom, doc } = await page('assistant', response);
+  doc.querySelector('.ai-conversation').click(); await settle();
+  doc.querySelector('[data-ai-interactive]').click();
+  assert.match(doc.querySelector('#dialog').textContent, /تحكم بالقناة/);
+  assert.ok(doc.querySelector('#aiControlChannel'));
+  assert.equal(doc.querySelector('#aiControlLaunch').disabled, true);
+  doc.querySelector('#aiControlMode').value = 'locked';
+  doc.querySelector('#aiControlMode').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.match(doc.querySelector('#aiControlPreview').textContent, /يُمنع الأعضاء من الكتابة/);
   dom.window.close();
 });
 test('native Discord event opens location-aware editor with live preview', async () => {
