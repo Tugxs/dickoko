@@ -79,16 +79,18 @@ test('rules are checked locally and publish with the selected card style', async
   const client = { async query(sql) { return sql.startsWith('SELECT id,guild_id') ? { rows: [item] } : { rows: [] }; }, release() {} };
   const app = { post(path, ...handlers) { if (path.endsWith('/launch-interactive')) launch = handlers.at(-1); } };
   mountInteractiveSystems(app, { pool: { connect: async () => client }, requireUser() {}, requireWriteAccess() {}, authorizedGuild: async () => true, requirePlanCapacity: async () => {}, discordBotFetch: async (path, options) => { paths.push({ path, options }); return path.includes('/messages') ? { ok: true, data: { id: 'message' } } : { ok: true, data: { id: '123456789012345678', guild_id: 'guild', type: 0 } }; } });
-  const body = { confirmed: true, channelId: '123456789012345678', title: 'القوانين', description: '', rules: ['احترم الآخرين', 'تجنب السبام'], style: 'cards', color: '#7733bb' };
+  const body = { confirmed: true, channelId: '123456789012345678', title: 'القوانين', description: '', rules: [{ title: 'الاحترام', body: 'احترم الآخرين\nحتى عند الاختلاف' }, { title: '', body: 'تجنب السبام' }], style: 'cards', color: '#7733bb' };
   const res = { status(code) { statusCode = code; return this; }, json(value) { response = value; return this; } };
-  await launch({ params: { id: 'request' }, user: { id: 'user' }, body: { ...body, rules: ['مكرر', 'مكرر'] } }, res, error => { throw error; });
+  await launch({ params: { id: 'request' }, user: { id: 'user' }, body: { ...body, rules: [{ title: '', body: '' }] } }, res, error => { throw error; });
   assert.equal(statusCode, 400);
   assert.deepEqual(paths, []);
   await launch({ params: { id: 'request' }, user: { id: 'user' }, body }, res, error => { throw error; });
   assert.equal(response.messageId, 'message');
   const sent = JSON.parse(paths.find(entry => entry.path.includes('/messages')).options.body);
   assert.equal(sent.embeds.length, 3);
-  assert.equal(sent.embeds[1].title, 'القانون 1');
+  assert.equal(sent.embeds[1].title, 'الاحترام');
+  assert.equal(sent.embeds[1].description, 'احترم الآخرين\nحتى عند الاختلاف');
+  assert.equal(sent.embeds[2].title, undefined);
   assert.deepEqual(sent.allowed_mentions, { parse: [] });
 });
 

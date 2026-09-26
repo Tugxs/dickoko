@@ -35,7 +35,7 @@ test('untouched library templates open editable task-specific drafts', () => {
     const draft = libraryDraftProposal({ mode: 'execute', category, title, prompt });
     assert.equal(draft.interactive.kind, kind);
     assert.equal(draft.draft, true);
-    for (const value of Object.values(draft.interactive).flat()) assert.doesNotMatch(String(value), /\[[^\]]+\]/);
+    for (const value of Object.values(draft.interactive).flat()) if (typeof value === 'string') assert.doesNotMatch(value, /\[[^\]]+\]/);
   }
 });
 
